@@ -1,0 +1,332 @@
+[
+{
+"code": "AOXY",
+"name": "Airline Supplied Oxygen",
+"category": "Medical"
+},
+{
+"code": "AVIH",
+"name": "Animal in Hold",
+"category": "Baggage"
+},
+{
+"code": "BIKE",
+"name": "Bicycle",
+"category": "Baggage"
+},
+{
+"code": "BULK",
+"name": "Bulky Baggage",
+"category": "Baggage"
+},
+{
+"code": "CBBG",
+"name": "Cabin Baggage",
+"category": "Baggage"
+},
+{
+"code": "COUR",
+"name": "Courier",
+"category": "Baggage"
+},
+{
+"code": "ESAN",
+"name": "Passenger with Emotional Support/Psychiatric Assistance Animal in Cabin",
+"category": "Baggage"
+},
+{
+"code": "FRAG",
+"name": "Fragile Baggage",
+"category": "Baggage"
+},
+{
+"code": "PDBG",
+"name": "Prepaid baggage (chargeable)",
+"category": "Baggage"
+},
+{
+"code": "PDPT",
+"name": "Pets (chargeable)",
+"category": "Baggage"
+},
+{
+"code": "PETC",
+"name": "Animal in Cabin",
+"category": "Baggage"
+},
+{
+"code": "SVAN",
+"name": "Passenger with Service Animal in Cabin",
+"category": "Baggage"
+},
+{
+"code": "WEAP",
+"name": "Weapon",
+"category": "Baggage"
+},
+{
+"code": "PDIE",
+"name": "In-Flight Entertainment (chargeable)",
+"category": "IFE"
+},
+{
+"code": "PDLG",
+"name": "Lounge (chargeable)",
+"category": "Lounge"
+},
+{
+"code": "FQTU",
+"name": "Frequent traveler requesting redemption for upgrade at the same time as obtaining accrual",
+"category": "Loyalty"
+},
+{
+"code": "PDUG",
+"name": "Upgrades (chargeable)",
+"category": "Loyalty"
+},
+{
+"code": "AVML",
+"name": "Vegetarian Hindu meal",
+"category": "Meal"
+},
+{
+"code": "BBML",
+"name": "Baby meal",
+"category": "Meal"
+},
+{
+"code": "BLML",
+"name": "Bland meal",
+"category": "Meal"
+},
+{
+"code": "CHML",
+"name": "Child meal",
+"category": "Meal"
+},
+{
+"code": "DBML",
+"name": "Diabetic meal",
+"category": "Meal"
+},
+{
+"code": "FPML",
+"name": "Fruit Platter meal",
+"category": "Meal"
+},
+{
+"code": "GFML",
+"name": "Gluten intolerant",
+"category": "Meal"
+},
+{
+"code": "HNML",
+"name": "Hindu meal",
+"category": "Meal"
+},
+{
+"code": "KSML",
+"name": "Kosher meal",
+"category": "Meal"
+},
+{
+"code": "LCML",
+"name": "Low calorie meal",
+"category": "Meal"
+},
+{
+"code": "LFML",
+"name": "Low fat meal",
+"category": "Meal"
+},
+{
+"code": "LSML",
+"name": "Low salt meal",
+"category": "Meal"
+},
+{
+"code": "MOML",
+"name": "Moslem meal",
+"category": "Meal"
+},
+{
+"code": "NLML",
+"name": "Low lactose meal",
+"category": "Meal"
+},
+{
+"code": "NOML",
+"name": "No meal",
+"category": "Meal"
+},
+{
+"code": "PDML",
+"name": "Meal/beverage (chargeable)",
+"category": "Meal"
+},
+{
+"code": "RVML",
+"name": "Vegetarian raw meal",
+"category": "Meal"
+},
+{
+"code": "SFML",
+"name": "Seafood meal",
+"category": "Meal"
+},
+{
+"code": "SPML",
+"name": "Specail meal",
+"category": "Meal"
+},
+{
+"code": "VGML",
+"name": "Vegetarian vegan meal",
+"category": "Meal"
+},
+{
+"code": "VJML",
+"name": "Vegetarian Jain meal",
+"category": "Meal"
+},
+{
+"code": "VLML",
+"name": "Vegetarian Jain meal",
+"category": "Meal"
+},
+{
+"code": "VOML",
+"name": "Vegetarian oriental meal",
+"category": "Meal"
+},
+{
+"code": "MEQT",
+"name": "Medical Equipment",
+"category": "Medical"
+},
+{
+"code": "POXY",
+"name": "Passenger Own Oxygen",
+"category": "Medical"
+},
+{
+"code": "PPOC",
+"name": "Personal Portable Oxygen Concentrator",
+"category": "Medical"
+},
+{
+"code": "STCR",
+"name": "Stretcher Passenger",
+"category": "Medical"
+},
+{
+"code": "WCBD",
+"name": "Wheelchair - Non-spillable battery",
+"category": "Medical"
+},
+{
+"code": "WCBW",
+"name": "Wheelchair - Wet cell battery",
+"category": "Medical"
+},
+{
+"code": "WCHC",
+"name": "Wheelchair - C for Cabin (Passenger totally immobile)",
+"category": "Medical"
+},
+{
+"code": "WCHR",
+"name": "Wheelchair - R for Ramp (Passenger can ascend/descend steps and make own way to/from cabin seat but requires wheelchair for distance to/from aircraft)",
+"category": "Medical"
+},
+{
+"code": "WCHS",
+"name": "Wheelchair - S for Stairs (Passenger cannot ascend/descend steps, but is able to make own way to/from cabin seat)",
+"category": "Medical"
+},
+{
+"code": "WCLB",
+"name": "Wheelchair - Lithium ion battery",
+"category": "Medical"
+},
+{
+"code": "WCMP",
+"name": "Wheelchair - Manual power",
+"category": "Medical"
+},
+{
+"code": "WCOB",
+"name": "On-board Wheelchair (provided by airline)",
+"category": "Medical"
+},
+{
+"code": "MAAS",
+"name": "Meet and assits",
+"category": "Other"
+},
+{
+"code": "UMNR",
+"name": "Unaccompanied minor",
+"category": "Other"
+},
+{
+"code": "BLND",
+"name": "Blind passenger",
+"category": "Passenger"
+},
+{
+"code": "DEAF",
+"name": "Deaf passenger",
+"category": "Passenger"
+},
+{
+"code": "DPNA",
+"name": "Disabled passenger with intellectual or developmental disability needing assistance",
+"category": "Passenger"
+},
+{
+"code": "PDFF",
+"name": "Frequent Flyer (chargeable)",
+"category": "Passenger"
+},
+{
+"code": "BSCT",
+"name": "Bassinet/carrycot/baby basket",
+"category": "Seat"
+},
+{
+"code": "EXST",
+"name": "Extra seat",
+"category": "Seat"
+},
+{
+"code": "SEAT",
+"name": "Seat request",
+"category": "Seat"
+},
+{
+"code": "PDCO",
+"name": "Carbon Offset (chargeable)",
+"category": "TBC"
+},
+{
+"code": "PDRO",
+"name": "Rule override (chargeable)",
+"category": "TBC"
+},
+{
+"code": "PDSB",
+"name": "Standby (chargeable)",
+"category": "TBC"
+},
+{
+"code": "PDST",
+"name": "Store (chargeable)",
+"category": "TBC"
+},
+{
+"code": "BDAY",
+"name": "Birthday",
+"category": "BDAY"
+}
+]
