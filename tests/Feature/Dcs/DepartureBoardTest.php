@@ -3,6 +3,7 @@
 namespace Tests\Feature\Dcs;
 
 use App\Enums\BookingSource;
+use App\Models\Airline;
 use App\Models\BaggageRule;
 use App\Models\Flight;
 use App\Services\Booking\BookingService;
@@ -47,6 +48,24 @@ class DepartureBoardTest extends TestCase
 
         $this->getJson('/api/v1/dcs/flights')->assertOk()
             ->assertJsonPath('data.0.passenger_counts', ['booked' => 2, 'checked_in' => 1, 'boarded' => 0]);
+    }
+
+    public function test_station_agent_of_an_airline_sees_only_its_flights(): void
+    {
+        $other = Airline::create(['name' => 'Other Air', 'iata_code' => 'OA', 'numeric_code' => '456']);
+        $otherFlight = $this->makeFlight(now()->addHours(4), ['airline_id' => $other->id, 'flight_number' => 'OA100']);
+
+        // ground handler of Test Air: Test Air flights from UBN only
+        $this->actingAsRole('station-agent');
+        $this->assertSame([$this->flight->id], array_column($this->getJson('/api/v1/dcs/flights')->assertOk()->json('data'), 'id'));
+        $this->getJson("/api/v1/dcs/flights/{$otherFlight->id}")->assertForbidden();
+
+        // an airport-wide agent (no airline) sees every airline at the station
+        $this->actingAsRole('station-agent', ['airline_id' => null]);
+        $this->assertEqualsCanonicalizing(
+            [$this->flight->id, $otherFlight->id],
+            array_column($this->getJson('/api/v1/dcs/flights')->assertOk()->json('data'), 'id'),
+        );
     }
 
     public function test_me_returns_station_details(): void

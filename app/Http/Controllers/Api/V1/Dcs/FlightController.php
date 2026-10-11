@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Api\V1\Dcs;
 
-use App\Enums\SegmentStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\FlightResource;
 use App\Models\AirlineSsr;
@@ -33,7 +32,7 @@ class FlightController extends Controller
     {
         $flights = $this->access->flights(Flight::query(), $request->user())
             ->with(['airline', 'aircraft', 'origin', 'destination'])
-            ->withCount($this->passengerCounts())
+            ->withPassengerCounts()
             ->upcoming(24)
             ->when($request->filled('date'), fn ($q) => $q->departingOn($request->date('date')->toDateString()))
             ->orderBy('scheduled_departure_at')
@@ -41,25 +40,6 @@ class FlightController extends Controller
             ->get();
 
         return FlightResource::collection($flights);
-    }
-
-    /**
-     * Seat-holding passenger counts for the departures board (infants excluded, like FlightStatistics::total).
-     *
-     * @return array<string, \Closure>
-     */
-    private function passengerCounts(): array
-    {
-        $adults = fn ($q) => $q->whereHas('passenger', fn ($p) => $p->whereNull('infant_of_passenger_id'));
-        $holding = [SegmentStatus::Booked->value, SegmentStatus::CheckedIn->value, SegmentStatus::Boarded->value, SegmentStatus::Flown->value];
-        $checkedIn = [SegmentStatus::CheckedIn->value, SegmentStatus::Boarded->value, SegmentStatus::Flown->value];
-        $boarded = [SegmentStatus::Boarded->value, SegmentStatus::Flown->value];
-
-        return [
-            'segments as booked_count' => fn ($q) => $adults($q->whereIn('status', $holding)),
-            'segments as checked_in_count' => fn ($q) => $adults($q->whereIn('status', $checkedIn)),
-            'segments as boarded_count' => fn ($q) => $adults($q->whereIn('status', $boarded)),
-        ];
     }
 
     public function show(Request $request, Flight $flight): JsonResponse

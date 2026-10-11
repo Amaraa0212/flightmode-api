@@ -133,6 +133,24 @@ class Flight extends Model
     }
 
     /** Operational date filter: matches ETD when set, otherwise STD. */
+    /**
+     * Seat-holding passenger counts (infants excluded, like FlightStatistics::total) as
+     * booked_count / checked_in_count / boarded_count — FlightResource prints them as passenger_counts.
+     */
+    public function scopeWithPassengerCounts(Builder $query): void
+    {
+        $adults = fn ($q) => $q->whereHas('passenger', fn ($p) => $p->whereNull('infant_of_passenger_id'));
+        $holding = [SegmentStatus::Booked->value, SegmentStatus::CheckedIn->value, SegmentStatus::Boarded->value, SegmentStatus::Flown->value];
+        $checkedIn = [SegmentStatus::CheckedIn->value, SegmentStatus::Boarded->value, SegmentStatus::Flown->value];
+        $boarded = [SegmentStatus::Boarded->value, SegmentStatus::Flown->value];
+
+        $query->withCount([
+            'segments as booked_count' => fn ($q) => $adults($q->whereIn('status', $holding)),
+            'segments as checked_in_count' => fn ($q) => $adults($q->whereIn('status', $checkedIn)),
+            'segments as boarded_count' => fn ($q) => $adults($q->whereIn('status', $boarded)),
+        ]);
+    }
+
     public function scopeDepartingOn(Builder $query, string $date): void
     {
         $query->where(function (Builder $q) use ($date) {

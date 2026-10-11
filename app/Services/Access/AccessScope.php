@@ -43,7 +43,9 @@ class AccessScope
         }
 
         if ($user->isAirportUser()) {
-            return $query->where('origin_airport_id', $user->airport_id ?? 0);
+            // a station / gate agent tied to an airline (its ground handler) sees only that airline's flights
+            return $query->where('origin_airport_id', $user->airport_id ?? 0)
+                ->when($user->airline_id, fn (Builder $q) => $q->where('flights.airline_id', $user->airline_id));
         }
 
         if ($user->agency_id && ! $user->airline_id) {
@@ -82,7 +84,8 @@ class AccessScope
         }
 
         if ($user->isAirportUser()) {
-            return $query->whereHas('passengers.segments.flight', fn (Builder $q) => $q->where('origin_airport_id', $user->airport_id ?? 0));
+            return $query->whereHas('passengers.segments.flight', fn (Builder $q) => $q->where('origin_airport_id', $user->airport_id ?? 0))
+                ->when($user->airline_id, fn (Builder $q) => $q->where('bookings.airline_id', $user->airline_id));
         }
 
         return $query->where('bookings.airline_id', $user->airline_id ?? 0);

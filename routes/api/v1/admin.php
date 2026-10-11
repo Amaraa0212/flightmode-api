@@ -18,6 +18,7 @@ Route::middleware('can:airlines.manage')->group(function () {
 });
 Route::apiResource('agencies', Admin\AgencyController::class)->middleware('can:agencies.manage');
 Route::middleware('can:users.manage')->group(function () {
+    Route::get('users/role-options', [Admin\UserController::class, 'roleOptions']);
     Route::apiResource('users', Admin\UserController::class);
     Route::post('users/{user}/api-token', [Admin\UserController::class, 'issueApiToken']);
     Route::delete('users/{user}/api-token', [Admin\UserController::class, 'revokeApiToken']);
