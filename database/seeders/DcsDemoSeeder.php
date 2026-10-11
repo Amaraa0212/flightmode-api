@@ -107,6 +107,8 @@ class DcsDemoSeeder extends Seeder
         });
 
         $this->demoBansAndAnnouncements();
+        // per-airline users for every role (gate agents are assigned to the flights just created)
+        $this->call(DemoUsersSeeder::class);
 
         $this->command?->info('DCS demo data ready. Login: '.env('DCS_DEMO_EMAIL', 'ops@ubn-airport.mn').' (password: DCS_DEMO_PASSWORD).');
     }
@@ -235,12 +237,15 @@ class DcsDemoSeeder extends Seeder
         return $aircraft;
     }
 
-    /** Only this seeder's flights: its flight numbers from UBN around today. */
+    /**
+     * Only this seeder's flights: its flight numbers of the demo airlines from UBN — every earlier run,
+     * whatever its date, so old runs do not pile up as duplicates next to the fresh board.
+     */
     private function clearDemoFlights(array $flightNumbers): void
     {
         $flights = Flight::query()->whereIn('flight_number', $flightNumbers)
             ->whereHas('origin', fn ($q) => $q->where('iata_code', 'UBN'))
-            ->whereBetween('scheduled_departure_at', [now()->subDays(2), now()->addDays(2)])
+            ->whereHas('airline', fn ($q) => $q->whereIn('iata_code', ['OM', 'MR']))
             ->get();
         foreach ($flights as $flight) {
             $bookingIds = DB::table('passenger_segments')

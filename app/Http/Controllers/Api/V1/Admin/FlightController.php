@@ -107,7 +107,7 @@ class FlightController extends Controller
         $this->access->ensureFlight($request->user(), $flight);
 
         $segments = $flight->segments()
-            ->with(['passenger.booking.agency', 'ssrCodes'])
+            ->with(['passenger.booking.agency', 'ssrCodes', 'checkedBaggage'])
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
             ->when($request->filled('search'), fn ($q) => $q->whereHas('passenger', fn ($p) => $p
                 ->where('last_name', 'like', '%'.$request->string('search').'%')

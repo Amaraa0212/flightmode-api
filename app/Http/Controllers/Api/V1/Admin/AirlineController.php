@@ -20,7 +20,7 @@ class AirlineController extends Controller
         $user = $request->user();
 
         return AirlineResource::collection(
-            Airline::query()
+            Airline::query()->withCount('agencies')
                 ->when(! $user->isSystemAdmin(), fn ($q) => $q->whereKey($user->airline_id))
                 ->when($request->filled('search'), fn ($q) => $q->where('name', 'like', '%'.$request->string('search').'%'))
                 ->orderBy('name')

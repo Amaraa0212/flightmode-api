@@ -22,6 +22,12 @@ return Application::configure(basePath: dirname(__DIR__))
     // Private channels for the DCS app, authorised with the Sanctum Bearer token: POST /api/broadcasting/auth
     ->withBroadcasting(__DIR__.'/../routes/channels.php', ['prefix' => 'api', 'middleware' => ['api', 'auth:sanctum']])
     ->withMiddleware(function (Middleware $middleware): void {
+        // Behind a proxy (Vercel rewrite of the admin / DCS apps, nginx): take the client IP from X-Forwarded-For,
+        // so login throttling and activity logs see the user, not the proxy. TRUSTED_PROXIES="*" or a list of IPs.
+        if ($proxies = env('TRUSTED_PROXIES')) {
+            $middleware->trustProxies(at: $proxies === '*' ? '*' : array_map('trim', explode(',', $proxies)));
+        }
+
         $middleware->alias([
             'active' => EnsureUserIsActive::class,
             'partner' => EnsurePartnerAccess::class,

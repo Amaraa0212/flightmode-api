@@ -100,6 +100,20 @@ class UserController extends Controller
         return $this->deleted('API token revoked.');
     }
 
+    /** Roles the actor may give in the user form (no administrator roles for airline / agency admins). */
+    public function roleOptions(Request $request): JsonResponse
+    {
+        $actor = $request->user();
+        $roles = Role::query()->orderBy('name')
+            ->when(! $actor->isSystemAdmin(), fn ($q) => $q->where('scope', '!=', RoleScope::Admin->value))
+            ->when(! $actor->isSystemAdmin() && ! $actor->airline_id, fn ($q) => $q->where('scope', RoleScope::Agency->value))
+            ->get(['id', 'name', 'slug', 'scope']);
+
+        return response()->json(['data' => $roles->map(fn (Role $r) => [
+            'id' => $r->id, 'name' => $r->name, 'slug' => $r->slug, 'scope' => $r->scope->value,
+        ])]);
+    }
+
     private function visible(User $actor): Builder
     {
         return User::query()->when(! $actor->isSystemAdmin(), function (Builder $q) use ($actor) {

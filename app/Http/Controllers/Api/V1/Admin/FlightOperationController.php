@@ -30,6 +30,7 @@ class FlightOperationController extends Controller
 
         $flights = $this->access->flights(Flight::query(), $request->user())
             ->with(['aircraft', 'origin', 'destination', 'gateAgents'])
+            ->withPassengerCounts()
             ->departingOn($date)
             ->get()
             ->sortBy(fn (Flight $f) => $f->departureAt())

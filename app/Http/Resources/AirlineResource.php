@@ -28,6 +28,7 @@ class AirlineResource extends JsonResource
             'currency' => $this->currency,
             'is_active' => $this->is_active,
             'agencies' => AgencyResource::collection($this->whenLoaded('agencies')),
+            'agencies_count' => $this->whenCounted('agencies'),
         ];
     }
 }
