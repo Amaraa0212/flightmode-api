@@ -24,6 +24,7 @@
 | agency_allocation | `agency_allocations`, `agency_allocation_quotas` |
 | booking | `bookings`, `passengers`, `checkin_groups`, `passenger_segments`, `passenger_segment_ssr`, `prepaid_baggage`, `baggage_items` |
 | payment | `orders`, `order_items` |
+| fare_setting | `rbds`, `fare_classes`, `fare_discounts`, `tax_codes`, `fare_taxes`, `rbd_modifications` (+ `fares.fare_class_id`) |
 | misc | `announcements`, `announcement_dismissals`, `charter_requests`, `airline_charter_request`, `activity_logs` |
 
 ## Гол бүтэц
@@ -33,6 +34,10 @@ airlines ─┬─ aircraft ─┬─ aircraft_cabins / aircraft_seats / aircraf
           ├─ flight_series ── flights ─┬─ flight_seat_blocks / flight_gate_agents
           │                            └─ baggage_rule_flight / flight_seat_price (online check-in)
           ├─ fares, baggage_rules, seat_prices, airline_ssrs
+          ├─ rbds ─┬─ fare_classes ─┬─ fare_discounts (ADT/CHD/INF %)
+          │        │                └─ fares.fare_class_id ── fare_taxes.fare_id (override)
+          │        └─ rbd_modifications (refund / change / no-show)
+          ├─ tax_codes ── fare_taxes (airport_id + bound OUT/IN = default)
           └─ agency_airline ── agencies ── agency_allocations ── agency_allocation_quotas
 
 bookings (PNR) ── passengers ── passenger_segments (1 зорчигч × 1 нислэг)
@@ -72,9 +77,11 @@ bookings (PNR) ── passengers ── passenger_segments (1 зорчигч × 
 | `notification_required` (+ session dismiss) | `announcements` + `announcement_dismissals` | |
 | `charter_applications` | `charter_requests` + `airline_charter_request` | |
 | `admin_action_logs`, `dcs_action_log`, `passenger_action_logs` | `activity_logs` | channel-аар ялгана |
+| flightmodedo `rbd`, `fare_class`, `fare_discount`, `fare`, `fare_tax`, `tax_code`, `modification` | `rbds`, `fare_classes`, `fare_discounts`, `fares`, `fare_taxes`, `tax_codes`, `rbd_modifications` | `route` → `airports`; `fare_tax.in_out_bound` → `bound` (OUT/IN); `fare_discount.age` → `passenger_type` + `age_from/to` |
 | `fare`, `permission_role_old`, `oci_transaction`, `bag_tag`, `shop_items`, `password_resets` | — | Хасагдсан |
 
 ## Анхаарах
 - `passenger_segments` дээр `unique(flight_id, seat_number)`. Segment цуцлах/устгах, offload хийхэд `seat_number`-ийг `null` болгоно (soft delete хийсэн мөр ч суудлыг түгжинэ).
-- Хүүхэд/нярай үнэ: `fares.child_percent`, `infant_percent`. Зорчигчийн төрлийг (`ADT/CHD/INF`) нислэгийн өдрийн насаар app талд тооцоолж хадгална.
+- Fare class-тай fare (`fares.fare_class_id`): үнэ = base × (100 − `fare_discounts.percentage`)%, татвар = гарах нисэх буудлын `OUT` + очих буудлын `IN` default мөрүүд (тухайн fare дээр `fare_id`-тай мөр байвал ижил tax code-ийн default-ийг орлоно). `fares`-ийн хуучин багана (`cabin_class`, `fare_class`, `trip_type`, `tax_amount`, CHD/INF %)-уудыг `FareService` түр синк хийж байна.
+- Хүүхэд/нярай үнэ (fare class-гүй хуучин fare): `fares.child_discount_percent`, `infant_discount_percent`. Зорчигчийн төрлийг (`ADT/CHD/INF`) нислэгийн өдрийн насаар app талд тооцоолж хадгална.
 - Online check-in-ий email баталгаажуулах код cache-д хадгалагдана (хүснэгтгүй).

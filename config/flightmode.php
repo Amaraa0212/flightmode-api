@@ -9,6 +9,8 @@ return [
     'booking' => [
         // International flights: passport must be valid this many months after departure.
         'passport_min_validity_months' => 6,
+        // Mongolian national ID card: issued at this age or later it has no end date (expiry 0000/00/00) — not checked.
+        'national_id_no_expiry_age' => 45,
         // PNR alphabet & length.
         'pnr_length' => 6,
     ],

@@ -60,6 +60,9 @@ class AllocationService
                 throw BusinessRuleException::make('cabins_exceed_seats', 'Cabin seats add up to more than the allocation.');
             }
 
+            // an update without "fares" keeps the fare buckets it has
+            $syncFares = array_key_exists('fares', $data) || ! $allocation?->exists;
+
             $allocation ??= new AgencyAllocation(['created_by' => auth()->id()]);
             $allocation->fill([
                 'airline_id' => $data['airline_id'],
@@ -69,8 +72,7 @@ class AllocationService
                 'seats' => $data['seats'],
                 'deadline' => $data['deadline'],
                 'is_waitlist' => $data['is_waitlist'] ?? false,
-                'uses_fare_quotas' => ! empty($data['fares']),
-            ])->save();
+            ])->fill($syncFares ? ['uses_fare_quotas' => ! empty($data['fares'])] : [])->save();
 
             $allocation->cabins()->delete();
             foreach ($data['cabins'] as $cabin => $seats) {
@@ -79,7 +81,9 @@ class AllocationService
                 }
             }
 
-            $this->syncFares($allocation, $data['fares'] ?? []);
+            if ($syncFares) {
+                $this->syncFares($allocation, $data['fares'] ?? []);
+            }
 
             $allocation->load(['cabins', 'fares.fare', 'outboundFlight', 'returnFlight', 'agency']);
             $this->chinggis->pushAllocation($allocation);
@@ -128,8 +132,12 @@ class AllocationService
 
     public function usedFareSeats(AgencyAllocationFare $bucket, ?int $exceptPassengerId = null): int
     {
+        $bucket->loadMissing('allocation');
+
+        // a round trip gives the passenger one coupon per flight with the same bucket — count the outbound one only
         return PassengerSegment::query()
             ->where('agency_allocation_fare_id', $bucket->id)
+            ->where('flight_id', $bucket->allocation->outbound_flight_id)
             ->whereNotIn('status', [SegmentStatus::Cancelled])
             ->when($exceptPassengerId, fn ($q) => $q->where('passenger_id', '!=', $exceptPassengerId))
             ->whereHas('passenger', fn ($q) => $q->whereNull('infant_of_passenger_id'))
@@ -241,6 +249,8 @@ class AllocationService
                 'fare_amount' => $row['fare_id'] ?? null ? null : ($row['fare_amount'] ?? 0),
                 'fare_max_amount' => $row['fare_id'] ?? null ? null : ($row['fare_max_amount'] ?? null),
                 'tax_amount' => $row['fare_id'] ?? null ? null : ($row['tax_amount'] ?? 0),
+                'child_discount_percent' => $row['fare_id'] ?? null ? 0 : ($row['child_discount_percent'] ?? 0),
+                'infant_discount_percent' => $row['fare_id'] ?? null ? 0 : ($row['infant_discount_percent'] ?? 0),
             ])->save();
             $keep[] = $bucket->id;
         }

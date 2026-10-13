@@ -11,6 +11,8 @@ use Illuminate\Support\Carbon;
 /** Date / document rules a passenger must satisfy for a flight. */
 class PassengerRules
 {
+    public const NATIONAL_ID = 'national_id';
+
     /**
      * @param  array<string, mixed>  $adult
      * @param  array<string, mixed>|null  $infant
@@ -34,11 +36,45 @@ class PassengerRules
             }
         }
 
-        if ($international) {
-            $this->assertPassportValidity($adult['document_expires_at'] ?? null, $departure, 'Passenger');
-            if ($infant !== null) {
-                $this->assertPassportValidity($infant['document_expires_at'] ?? null, $departure, 'Infant');
+        $this->assertDocument($adult, $departure, $international, 'Passenger');
+        if ($infant !== null) {
+            $this->assertDocument($infant, $departure, $international, 'Infant');
+        }
+    }
+
+    /**
+     * Travel document of one person:
+     *  - Mongolian national ID card: MN citizens only, domestic flights only; from age 45 it has no end date
+     *    (expiry 0000/00/00), so its expiry is not checked
+     *  - international: the passport must be valid PASSPORT_MIN_VALIDITY months after departure
+     *  - domestic: the document must be valid on the departure date
+     *
+     * @param  array<string, mixed>  $person
+     */
+    private function assertDocument(array $person, Carbon $departure, bool $international, string $who): void
+    {
+        if (($person['document_type'] ?? null) === self::NATIONAL_ID) {
+            if (strtoupper((string) ($person['nationality'] ?? '')) !== 'MN') {
+                throw BusinessRuleException::make('national_id_nationality', "{$who}: a national ID card is accepted for Mongolian citizens (MN) only.");
             }
+            if ($international) {
+                throw BusinessRuleException::make('national_id_international', "{$who}: international flights need a passport, not a national ID card.");
+            }
+            $age = PassengerAge::years($this->date($person['date_of_birth'] ?? null), $departure);
+            if ($age !== null && $age >= (int) config('flightmode.booking.national_id_no_expiry_age', 45)) {
+                return; // valid for life
+            }
+        }
+
+        if ($international) {
+            $this->assertPassportValidity($person['document_expires_at'] ?? null, $departure, $who);
+
+            return;
+        }
+
+        $expires = $this->date($person['document_expires_at'] ?? null);
+        if ($expires && $expires->lt($departure->copy()->startOfDay())) {
+            throw BusinessRuleException::make('document_expired', "{$who} document has expired before the departure date.");
         }
     }
 

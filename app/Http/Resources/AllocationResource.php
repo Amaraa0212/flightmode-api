@@ -43,6 +43,8 @@ class AllocationResource extends JsonResource
                 'fare_amount' => $f->fare?->base_amount ?? $f->fare_amount,
                 'fare_max_amount' => $f->fare_max_amount,
                 'tax_amount' => $f->fare?->tax_amount ?? $f->tax_amount,
+                'child_discount_percent' => $f->fare?->child_discount_percent ?? $f->child_discount_percent,
+                'infant_discount_percent' => $f->fare?->infant_discount_percent ?? $f->infant_discount_percent,
                 'is_manual' => $f->isManual(),
             ])),
             'usage' => $this->when($this->usage !== null, fn () => $this->usage),

@@ -9,6 +9,7 @@ use App\Enums\CheckinChannel;
 use App\Enums\FlightStatus;
 use App\Enums\SegmentStatus;
 use App\Exceptions\BusinessRuleException;
+use App\Models\AgencyAllocation;
 use App\Models\Aircraft;
 use App\Models\Airline;
 use App\Models\AirlineSsr;
@@ -252,6 +253,8 @@ class DcsDemoSeeder extends Seeder
                 ->join('passengers', 'passengers.id', '=', 'passenger_segments.passenger_id')
                 ->where('passenger_segments.flight_id', $flight->id)->distinct()->pluck('passengers.booking_id');
             DB::table('bookings')->whereIn('id', $bookingIds)->delete();
+            // demo agency quotas on the flight (their bookings went with the flight's bookings above)
+            AgencyAllocation::query()->where('outbound_flight_id', $flight->id)->orWhere('return_flight_id', $flight->id)->delete();
             $flight->baggageRules()->detach();
             $flight->delete();
         }

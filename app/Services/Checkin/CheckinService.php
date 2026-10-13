@@ -40,14 +40,17 @@ class CheckinService
     /**
      * Check a passenger in and give them a seat. Without a seat number the next free seat
      * is picked following the flight's seat assignment profile.
+     *
+     * @param  array<string>|null  $autoSeatChoices  seats the automatic pick may use (online check-in restrictions), null = any
      */
     public function checkIn(
         PassengerSegment $segment,
         ?string $seatNumber,
         CheckinChannel $channel,
         bool $allowCabinChange = true,
+        ?array $autoSeatChoices = null,
     ): PassengerSegment {
-        return DB::transaction(function () use ($segment, $seatNumber, $channel, $allowCabinChange) {
+        return DB::transaction(function () use ($segment, $seatNumber, $channel, $allowCabinChange, $autoSeatChoices) {
             /** @var Flight $flight */
             $flight = Flight::query()->lockForUpdate()->findOrFail($segment->flight_id);
             $segment = PassengerSegment::query()->with('passenger.infant')->lockForUpdate()->findOrFail($segment->id);
@@ -70,7 +73,7 @@ class CheckinService
 
             $seat = $seatNumber
                 ? $this->requestedSeat($flight, $segment, strtoupper($seatNumber))
-                : $this->autoSeat($flight, $segment);
+                : $this->autoSeat($flight, $segment, $autoSeatChoices);
 
             if (! $allowCabinChange && $seat->cabin_class !== $segment->cabin_class) {
                 throw BusinessRuleException::make('seat_wrong_cabin', 'This seat is in another cabin.');
@@ -226,7 +229,8 @@ class CheckinService
     }
 
     /** Next free seat in the passenger's cabin, zones in the order of the seat assignment profile. */
-    private function autoSeat(Flight $flight, PassengerSegment $segment): AircraftSeat
+    /** @param array<string>|null $choices */
+    private function autoSeat(Flight $flight, PassengerSegment $segment, ?array $choices = null): AircraftSeat
     {
         if ($segment->seat_number) {
             return AircraftSeat::query()->where('aircraft_id', $flight->aircraft_id)->where('seat_number', $segment->seat_number)->firstOrFail();
@@ -240,6 +244,7 @@ class CheckinService
             ->where('cabin_class', $segment->cabin_class)
             ->where('is_emergency_exit', false)
             ->whereNotIn('seat_number', array_merge($taken, $blocked))
+            ->when($choices !== null, fn ($q) => $q->whereIn('seat_number', $choices))
             ->when($zones !== [], fn ($q) => $q->whereIn('zone', $zones))
             ->orderBy('seat_row')->orderBy('seat_column')
             ->get();

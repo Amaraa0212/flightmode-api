@@ -19,6 +19,8 @@ class AgencyAllocationFare extends Model
             'fare_amount' => 'decimal:2',
             'fare_max_amount' => 'decimal:2',
             'tax_amount' => 'decimal:2',
+            'child_discount_percent' => 'decimal:2',
+            'infant_discount_percent' => 'decimal:2',
         ];
     }
 
@@ -49,8 +51,16 @@ class AgencyAllocationFare extends Model
             return $this->fare->priceFor($type);
         }
 
+        // manual fare: same CHD / INF discount rule as a published fare
+        $base = (float) $this->fare_amount;
+        $discount = match ($type) {
+            PassengerType::Child => (float) $this->child_discount_percent,
+            PassengerType::Infant => (float) $this->infant_discount_percent,
+            PassengerType::Adult => 0.0,
+        };
+
         return [
-            'fare' => (string) ($this->fare_amount ?? '0.00'),
+            'fare' => number_format($base * (100 - $discount) / 100, 2, '.', ''),
             'tax' => $type === PassengerType::Infant ? '0.00' : (string) ($this->tax_amount ?? '0.00'),
         ];
     }

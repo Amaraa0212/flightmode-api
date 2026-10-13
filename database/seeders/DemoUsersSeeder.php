@@ -80,6 +80,8 @@ class DemoUsersSeeder extends Seeder
         }
 
         $this->command?->table(['Airline', 'Role', 'Login'], $rows);
+        // quotas and sold bookings for the agency users
+        $this->call(DemoAgencySeeder::class);
         $this->command?->info('Password for every demo user: DEMO_USERS_PASSWORD (default in .env.example).');
     }
 
