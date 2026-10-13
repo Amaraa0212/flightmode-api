@@ -51,6 +51,13 @@ Route::middleware('can:aircraft.manage')->group(function () {
 // Products & prices
 Route::middleware('can:fares.manage')->group(function () {
     Route::apiResource('fares', Admin\FareController::class)->parameters(['fares' => 'id']);
+    Route::apiResource('rbds', Admin\RbdController::class)->parameters(['rbds' => 'id']);
+    Route::apiResource('fare-classes', Admin\FareClassController::class)->parameters(['fare-classes' => 'id']);
+    Route::apiResource('fare-classes.discounts', Admin\FareDiscountController::class)
+        ->except(['show'])->parameters(['fare-classes' => 'fareClass']);
+    Route::apiResource('tax-codes', Admin\TaxCodeController::class)->parameters(['tax-codes' => 'id']);
+    Route::apiResource('fare-taxes', Admin\FareTaxController::class)->parameters(['fare-taxes' => 'id']);
+    Route::apiResource('rbd-modifications', Admin\RbdModificationController::class)->parameters(['rbd-modifications' => 'id']);
 });
 Route::middleware('can:products.manage')->group(function () {
     Route::apiResource('baggage-rules', Admin\BaggageRuleController::class)->parameters(['baggage-rules' => 'id']);

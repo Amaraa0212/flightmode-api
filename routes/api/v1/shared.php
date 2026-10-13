@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\Shared\AnnouncementFeedController;
+use App\Http\Controllers\Api\V1\Shared\IssueReportController;
 use App\Http\Controllers\Api\V1\Shared\ReferenceController;
 use Illuminate\Support\Facades\Route;
 
@@ -15,3 +16,6 @@ Route::prefix('reference')->group(function () {
 // Announcements addressed to me
 Route::get('announcements', [AnnouncementFeedController::class, 'index']);
 Route::post('announcements/{announcement}/dismiss', [AnnouncementFeedController::class, 'dismiss']);
+
+// Problems reported from the page help panel
+Route::post('issue-reports', [IssueReportController::class, 'store'])->middleware('throttle:10,1');

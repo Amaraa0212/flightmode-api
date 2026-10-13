@@ -14,6 +14,8 @@ class FareResource extends JsonResource
         return [
             'id' => $this->id,
             'airline_id' => $this->airline_id,
+            'fare_class_id' => $this->fare_class_id,
+            'booking_code' => $this->whenLoaded('fareClass', fn () => $this->fareClass?->booking_code),
             'origin' => $this->whenLoaded('origin', fn () => $this->origin->iata_code),
             'destination' => $this->whenLoaded('destination', fn () => $this->destination->iata_code),
             'origin_airport_id' => $this->origin_airport_id,

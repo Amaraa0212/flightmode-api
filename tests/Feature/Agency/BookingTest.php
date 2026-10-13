@@ -152,6 +152,72 @@ class BookingTest extends TestCase
         $this->assertSame($segments[0]->ticket_number, $segments[1]->ticket_number);
     }
 
+    public function test_round_trip_passenger_uses_one_seat_of_the_fare_quota(): void
+    {
+        $out = $this->makeFlight(now()->addDays(3));
+        $back = $this->makeFlight(now()->addDays(10), ['flight_number' => 'TA102', 'origin_airport_id' => $this->pqc->id, 'destination_airport_id' => $this->ubn->id]);
+        $allocation = $this->makeAllocation($out, 5, ['Y' => 5], ['return_flight_id' => $back->id, 'fares' => [
+            ['cabin_class' => 'Y', 'seats' => 2, 'fare_amount' => 800000, 'tax_amount' => 40000],
+        ]]);
+        $bucketId = $allocation->fares->first()->id;
+        $this->actingAsRole('agency-agent');
+        $book = fn () => $this->postJson('/api/v1/agency/bookings', [
+            'allocation_id' => $allocation->id,
+            'passengers' => [$this->passengerPayload(['allocation_fare_id' => $bucketId])],
+        ]);
+
+        $book()->assertCreated();
+        $usage = $this->getJson("/api/v1/agency/allocations/{$allocation->id}")->assertOk()->json('data.usage');
+        $this->assertSame(1, $usage['fares'][0]['sold']);
+        $this->assertSame(1, $usage['fares'][0]['remaining']);
+
+        $book()->assertCreated();
+        $book()->assertStatus(422)->assertJsonPath('code', 'fare_full');
+    }
+
+    public function test_manual_fare_applies_child_and_infant_discount(): void
+    {
+        $flight = $this->makeFlight();
+        $allocation = $this->makeAllocation($flight, 5, ['Y' => 5], ['fares' => [[
+            'cabin_class' => 'Y', 'seats' => 0, 'fare_amount' => 800000, 'tax_amount' => 40000,
+            'child_discount_percent' => 25, 'infant_discount_percent' => 90,
+        ]]]);
+        $bucketId = $allocation->fares->first()->id;
+        $this->actingAsRole('agency-agent');
+
+        $this->postJson('/api/v1/agency/bookings', ['allocation_id' => $allocation->id, 'passengers' => [
+            $this->passengerPayload(['allocation_fare_id' => $bucketId, 'date_of_birth' => now()->subYears(5)->toDateString()]),
+            $this->passengerPayload(['allocation_fare_id' => $bucketId, 'infant' => [
+                'first_name' => 'Baby', 'last_name' => 'Dorj', 'date_of_birth' => now()->subYear()->toDateString(),
+                'document_expires_at' => now()->addYears(4)->toDateString(),
+            ]]),
+        ]])->assertCreated();
+
+        $fares = PassengerSegment::query()->with('passenger')->get()->mapWithKeys(fn ($s) => [$s->passenger->type->value => $s]);
+        $this->assertSame('600000.00', $fares['CHD']->fare_amount);
+        $this->assertSame('40000.00', $fares['CHD']->tax_amount);
+        $this->assertSame('800000.00', $fares['ADT']->fare_amount);
+        $this->assertSame('80000.00', $fares['INF']->fare_amount);
+        $this->assertSame('0.00', $fares['INF']->tax_amount);
+    }
+
+    public function test_allocation_update_without_fares_keeps_fare_quotas(): void
+    {
+        $flight = $this->makeFlight();
+        $allocation = $this->makeAllocation($flight, 5, ['Y' => 5], ['fares' => [
+            ['cabin_class' => 'Y', 'seats' => 2, 'fare_amount' => 800000, 'tax_amount' => 40000],
+        ]]);
+        $this->actingAsRole('airline-admin');
+
+        $this->putJson("/api/v1/admin/allocations/{$allocation->id}", [
+            'agency_id' => $this->agency->id, 'outbound_flight_id' => $flight->id, 'seats' => 6,
+            'deadline' => $allocation->deadline->toDateString(), 'cabins' => ['Y' => 4, 'C' => 2],
+        ])->assertOk()
+            ->assertJsonPath('data.uses_fare_quotas', true)
+            ->assertJsonCount(1, 'data.fares')
+            ->assertJsonPath('data.cabins.C', 2);
+    }
+
     public function test_agency_cannot_touch_another_agencys_booking_and_can_cancel_own(): void
     {
         $flight = $this->makeFlight();

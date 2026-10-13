@@ -85,6 +85,20 @@ class OnlineCheckinTest extends TestCase
         $this->assertSame('online', $fresh->checkin_channel->value);
     }
 
+    public function test_automatic_seat_follows_online_restrictions(): void
+    {
+        // economy zone B (rows 3-6) closed online too — the automatic pick must skip it
+        config(['flightmode.online_checkin.excluded_zones' => ['A', 'B']]);
+        $headers = ['X-Checkin-Token' => $this->checkinSession()];
+
+        $this->postJson("/api/v1/checkin/flights/{$this->flight->id}/check-in", [
+            'accept_policies' => true,
+            'passengers' => [['segment_id' => $this->segment->id]],
+        ], $headers)->assertOk();
+
+        $this->assertSame('7A', $this->segment->fresh()->seat_number);
+    }
+
     public function test_requests_without_a_valid_session_are_rejected(): void
     {
         $this->getJson("/api/v1/checkin/flights/{$this->flight->id}/passengers", ['X-Checkin-Token' => 'nope'])

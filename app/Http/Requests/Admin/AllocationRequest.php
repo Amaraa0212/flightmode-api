@@ -29,6 +29,8 @@ class AllocationRequest extends FormRequest
             'fares.*.fare_amount' => ['required_without:fares.*.fare_id', 'nullable', 'numeric', 'min:0'],
             'fares.*.fare_max_amount' => ['nullable', 'numeric', 'min:0'],
             'fares.*.tax_amount' => ['nullable', 'numeric', 'min:0'],
+            'fares.*.child_discount_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'fares.*.infant_discount_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
         ];
     }
 

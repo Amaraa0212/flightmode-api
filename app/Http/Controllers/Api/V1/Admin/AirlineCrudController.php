@@ -103,6 +103,13 @@ abstract class AirlineCrudController extends Controller
         return $this->deleted($this->label().' deleted.');
     }
 
+    /** Airline the record is (or will be) written for: the model's own airline, or the one store() will use. */
+    protected function targetAirlineId(Request $request, ?Model $model): int
+    {
+        return $model ? (int) $model->getAttribute('airline_id')
+            : $this->access->airlineIdForWrite($request->user(), $request->integer('airline_id') ?: null);
+    }
+
     protected function find(Request $request, int $id): Model
     {
         return $this->access->airlineOwned($this->model()::query(), $request->user())->findOrFail($id);

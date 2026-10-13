@@ -167,7 +167,11 @@ class OnlineCheckinService
                     $this->assertSeatSelectable($flight, $seat, $sessionToken);
                 }
 
-                $done->push($this->checkin->checkIn($segment, $seat, CheckinChannel::Online, allowCabinChange: false));
+                // no seat chosen: the automatic pick follows the same restrictions as the online seat map
+                $choices = $seat || $segment->seat_number ? null : $this->selectableSeats($flight, $sessionToken);
+
+                $done->push($this->checkin->checkIn($segment, $seat, CheckinChannel::Online,
+                    allowCabinChange: false, autoSeatChoices: $choices));
                 if ($seat) {
                     $this->holds->release($flight->id, $seat, $sessionToken);
                 }
@@ -204,6 +208,14 @@ class OnlineCheckinService
         if (! $this->isOpenOnline($flight)) {
             throw BusinessRuleException::make('online_checkin_closed', 'Online check-in is not open for this flight.');
         }
+    }
+
+    /** @return array<string> seats that can be chosen online right now */
+    private function selectableSeats(Flight $flight, string $holder): array
+    {
+        return collect($this->seatMap->forFlight($flight, forOnlineCheckin: true, holder: $holder)['seats'])
+            ->where('state', SeatMapService::AVAILABLE)
+            ->pluck('seat_number')->values()->all();
     }
 
     private function assertSeatSelectable(Flight $flight, string $seatNumber, string $holder): void
