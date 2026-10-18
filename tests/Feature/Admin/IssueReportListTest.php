@@ -96,4 +96,38 @@ class IssueReportListTest extends TestCase
         $this->actingAsRole('agency-agent');
         $this->getJson('/api/v1/admin/issue-reports')->assertForbidden();
     }
+
+    public function test_airline_admin_resolves_and_reopens_a_report(): void
+    {
+        $report = $this->report($this->makeUser('airline-staff'));
+        $admin = $this->actingAsRole('airline-admin');
+
+        $this->patchJson("/api/v1/admin/issue-reports/{$report->id}", ['status' => 'resolved', 'resolution_note' => 'Fixed in v1.2'])
+            ->assertOk()
+            ->assertJsonPath('data.status', 'resolved')
+            ->assertJsonPath('data.resolution_note', 'Fixed in v1.2')
+            ->assertJsonPath('data.resolved_by.id', $admin->id);
+        $this->assertNotNull($report->refresh()->resolved_at);
+        $this->assertDatabaseHas('activity_logs', ['event' => 'issue_report.updated']);
+
+        $this->patchJson("/api/v1/admin/issue-reports/{$report->id}", ['status' => 'in_progress'])
+            ->assertOk()->assertJsonPath('data.resolved_by', null)->assertJsonPath('data.resolved_at', null);
+
+        $this->getJson("/api/v1/admin/issue-reports/{$report->id}")->assertOk()->assertJsonPath('data.status', 'in_progress');
+        $this->patchJson("/api/v1/admin/issue-reports/{$report->id}", ['status' => 'done'])->assertStatus(422);
+    }
+
+    public function test_cannot_update_reports_of_another_airline_or_without_permission(): void
+    {
+        $other = Airline::create(['name' => 'Other Air', 'iata_code' => 'OA', 'numeric_code' => '456']);
+        $foreign = $this->report($this->makeUser('airline-staff', ['airline_id' => $other->id]));
+        $own = $this->report($this->makeUser('airline-staff'));
+
+        $this->actingAsRole('airline-admin');
+        $this->patchJson("/api/v1/admin/issue-reports/{$foreign->id}", ['status' => 'resolved'])->assertForbidden();
+        $this->getJson("/api/v1/admin/issue-reports/{$foreign->id}")->assertForbidden();
+
+        $this->actingAsRole('airline-staff');
+        $this->patchJson("/api/v1/admin/issue-reports/{$own->id}", ['status' => 'resolved'])->assertForbidden();
+    }
 }

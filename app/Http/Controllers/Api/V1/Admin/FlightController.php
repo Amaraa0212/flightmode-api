@@ -25,7 +25,11 @@ class FlightController extends Controller
         private readonly FlightStatistics $statistics,
     ) {}
 
-    /** Filters: from, to (dates, default: this month), status, airline_id, origin_airport_id, destination_airport_id, flight_number. */
+    /**
+     * Filters: from, to (dates, default: this month), status, airline_id, origin_airport_id, destination_airport_id, flight_number,
+     * search (flight number, origin / destination IATA, aircraft registration), source (single | series),
+     * open (not departed / cancelled), with_products (baggage rules, seat prices, zone profile, blocked seats).
+     */
     public function index(Request $request): AnonymousResourceCollection
     {
         $from = $request->date('from') ?? now()->startOfMonth();
@@ -40,6 +44,18 @@ class FlightController extends Controller
             ->when($request->filled('origin_airport_id'), fn ($q) => $q->where('origin_airport_id', $request->integer('origin_airport_id')))
             ->when($request->filled('destination_airport_id'), fn ($q) => $q->where('destination_airport_id', $request->integer('destination_airport_id')))
             ->when($request->filled('flight_number'), fn ($q) => $q->where('flight_number', 'like', $request->string('flight_number')->upper().'%'))
+            ->when($request->filled('search'), function ($q) use ($request) {
+                $term = '%'.$request->string('search')->trim()->upper().'%';
+                $q->where(fn ($x) => $x->where('flight_number', 'like', $term)
+                    ->orWhereHas('origin', fn ($a) => $a->where('iata_code', 'like', $term))
+                    ->orWhereHas('destination', fn ($a) => $a->where('iata_code', 'like', $term))
+                    ->orWhereHas('aircraft', fn ($a) => $a->where('registration', 'like', $term)));
+            })
+            ->when($request->boolean('open'), fn ($q) => $q->whereNotIn('status', [FlightStatus::Departed, FlightStatus::Cancelled]))
+            ->when($request->boolean('with_products'), fn ($q) => $q->with(['baggageRules:id,name', 'seatAssignmentProfile:id,name'])
+                ->withCount(['seatPrices', 'seatBlocks']))
+            ->when($request->input('source') === 'single', fn ($q) => $q->whereNull('flight_series_id'))
+            ->when($request->input('source') === 'series', fn ($q) => $q->whereNotNull('flight_series_id'))
             ->orderBy('scheduled_departure_at')
             ->paginate($request->integer('per_page', 100));
 

@@ -38,10 +38,24 @@ class FareController extends AirlineCrudController
         $query->when($request->boolean('with_fare_class'), fn ($q) => $q->whereNotNull('fare_class_id'))
             ->when($request->filled('fare_class_id'), fn ($q) => $q->where('fare_class_id', $request->integer('fare_class_id')))
             ->when($request->filled('is_active'), fn ($q) => $q->where('is_active', $request->boolean('is_active')))
-            ->when($request->filled('cabin_class'), fn ($q) => $q->where('cabin_class', $request->string('cabin_class')))
-            ->when($request->filled('trip_type'), fn ($q) => $q->where('trip_type', $request->string('trip_type')))
+            ->when($request->filled('cabin_class'), fn ($q) => $q->whereIn('cabin_class', (array) $request->input('cabin_class')))
+            ->when($request->filled('trip_type'), fn ($q) => $q->whereIn('trip_type', (array) $request->input('trip_type')))
             ->when($request->filled('origin_airport_id'), fn ($q) => $q->where('origin_airport_id', $request->integer('origin_airport_id')))
             ->when($request->filled('destination_airport_id'), fn ($q) => $q->where('destination_airport_id', $request->integer('destination_airport_id')))
+            ->when($request->filled('search'), function ($q) use ($request) {
+                // "UBN-PQC" = that direction; "UBN" = either end; one letter is also an RBD
+                $term = $request->string('search')->trim()->upper()->toString();
+                if (str_contains($term, '-')) {
+                    [$from, $to] = array_map('trim', explode('-', $term, 2));
+                    $q->when($from !== '', fn ($x) => $x->whereHas('origin', fn ($a) => $a->where('iata_code', 'like', "{$from}%")))
+                        ->when($to !== '', fn ($x) => $x->whereHas('destination', fn ($a) => $a->where('iata_code', 'like', "{$to}%")));
+
+                    return;
+                }
+                $q->where(fn ($x) => $x->where('fare_class', $term)
+                    ->orWhereHas('origin', fn ($a) => $a->where('iata_code', 'like', "{$term}%"))
+                    ->orWhereHas('destination', fn ($a) => $a->where('iata_code', 'like', "{$term}%")));
+            })
             ->when($request->boolean('valid_now'), fn ($q) => $q->whereDate('valid_from', '<=', today())->whereDate('valid_to', '>=', today()));
     }
 

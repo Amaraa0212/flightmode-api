@@ -95,12 +95,18 @@ class CounterFeaturesTest extends TestCase
             ->assertJsonPath('data.excess_kg', 3)
             ->assertJsonPath('data.excess_price', 54000);
 
+        // excess must be paid or waived before the bag is tagged
         $this->postJson("/api/v1/dcs/segments/{$segment->id}/baggage", [
             'baggage_rule_id' => $this->rule->id, 'pieces' => 1, 'weight_kg' => 26,
-            'excess_price' => 0, 'free_allowance_kg' => 100, 'price' => 0,
+        ])->assertStatus(422)->assertJsonPath('code', 'excess_payment_required');
+
+        $this->postJson("/api/v1/dcs/segments/{$segment->id}/baggage", [
+            'baggage_rule_id' => $this->rule->id, 'pieces' => 1, 'weight_kg' => 26,
+            'excess_price' => 0, 'free_allowance_kg' => 100, 'price' => 0, 'payment_reference' => 'POS-778812',
         ])->assertCreated()
             ->assertJsonPath('data.free_allowance_kg', '23.0')
-            ->assertJsonPath('data.excess_price', '54000.00');
+            ->assertJsonPath('data.excess_price', '54000.00')
+            ->assertJsonPath('data.payment_reference', 'POS-778812');
 
         // cap: 3 kg already excess, 10 kg max per passenger
         $this->postJson("/api/v1/dcs/segments/{$segment->id}/baggage", [
@@ -260,5 +266,79 @@ class CounterFeaturesTest extends TestCase
 
         $this->assertTrue($ids->contains($airlineWide->id));
         $this->assertFalse($ids->contains($agencyOnly->id));
+    }
+
+    public function test_excess_can_be_waived_with_a_reason_and_who_allowed_it(): void
+    {
+        $segment = $this->book();
+        $this->openAndCheckIn($segment);
+        $bag = ['baggage_rule_id' => $this->rule->id, 'pieces' => 1, 'weight_kg' => 25, 'waive_reason' => 'Medical equipment'];
+
+        $this->postJson("/api/v1/dcs/segments/{$segment->id}/baggage", $bag)
+            ->assertStatus(422)->assertJsonPath('code', 'waive_authorizer_required');
+
+        $this->postJson("/api/v1/dcs/segments/{$segment->id}/baggage", $bag + ['waive_authorized_by' => 'Duty manager Bold'])
+            ->assertCreated()
+            ->assertJsonPath('data.excess_price', '36000.00')
+            ->assertJsonPath('data.waived_amount', '36000.00')
+            ->assertJsonPath('data.waive_authorized_by', 'Duty manager Bold');
+    }
+
+    public function test_a_combined_rule_shares_one_free_kg_pool_between_pieces(): void
+    {
+        $this->rule->update(['type' => 'combined', 'max_quantity' => 3]); // 23 kg free, up to 3 pieces
+        $segment = $this->book();
+        $this->openAndCheckIn($segment);
+
+        // two bags of 22 kg in total fit, 1 kg stays free
+        $this->postJson("/api/v1/dcs/segments/{$segment->id}/baggage/quote", ['baggage_rule_id' => $this->rule->id, 'pieces' => 2, 'weight_kg' => 22])
+            ->assertOk()->assertJsonPath('data.free_allowance_kg', 22)->assertJsonPath('data.excess_kg', 0)
+            ->assertJsonPath('data.remaining_allowance_kg', 1);
+        $this->postJson("/api/v1/dcs/segments/{$segment->id}/baggage", ['baggage_rule_id' => $this->rule->id, 'pieces' => 2, 'weight_kg' => 22])
+            ->assertCreated();
+
+        // the third bag uses the last free kg, the rest is excess
+        $this->postJson("/api/v1/dcs/segments/{$segment->id}/baggage/quote", ['baggage_rule_id' => $this->rule->id, 'pieces' => 1, 'weight_kg' => 5])
+            ->assertOk()->assertJsonPath('data.free_allowance_kg', 1)->assertJsonPath('data.excess_kg', 4)
+            ->assertJsonPath('data.remaining_allowance_kg', 0);
+
+        // and the piece cap still applies
+        $this->postJson("/api/v1/dcs/segments/{$segment->id}/baggage/quote", ['baggage_rule_id' => $this->rule->id, 'pieces' => 2, 'weight_kg' => 5])
+            ->assertStatus(422)->assertJsonPath('code', 'baggage_limit_exceeded');
+    }
+
+    public function test_a_passenger_cannot_leave_a_group_that_has_baggage(): void
+    {
+        $lead = $this->book(['last_name' => 'Bold', 'first_name' => 'Nandin', 'document_number' => 'E7200001']);
+        $kid = $this->book(['last_name' => 'Bold', 'first_name' => 'Anu', 'document_number' => 'E7200002']);
+        $this->openAndCheckIn($lead);
+        $this->postJson("/api/v1/dcs/flights/{$this->flight->id}/groups", ['segment_ids' => [$lead->id, $kid->id]])->assertCreated();
+        $this->postJson("/api/v1/dcs/segments/{$lead->id}/baggage", ['baggage_rule_id' => $this->rule->id, 'pieces' => 2, 'weight_kg' => 40])
+            ->assertCreated();
+
+        $this->deleteJson("/api/v1/dcs/segments/{$kid->id}/group")->assertStatus(422)->assertJsonPath('code', 'group_has_baggage');
+        $this->assertNotNull($kid->refresh()->checkin_group_id);
+
+        $bagId = $lead->checkedBaggage()->value('id');
+        $this->deleteJson("/api/v1/dcs/baggage/{$bagId}")->assertOk();
+        $this->deleteJson("/api/v1/dcs/segments/{$kid->id}/group")->assertOk();
+        $this->assertNull($kid->refresh()->checkin_group_id);
+
+        // the DCS history log finds the passenger's actions by name
+        $this->actingAsRole('airline-admin');
+        $logs = $this->getJson('/api/v1/admin/activity-logs?passenger=anu')->assertOk()->json('data');
+        $this->assertNotEmpty($logs);
+        $this->assertSame([$kid->passenger_id], array_values(array_unique(array_column($logs, 'passenger_id'))));
+    }
+
+    public function test_date_of_birth_must_be_a_real_year(): void
+    {
+        $segment = $this->book();
+        $this->actingAsRole('station-agent');
+
+        $this->putJson("/api/v1/dcs/passengers/{$segment->passenger_id}", ['date_of_birth' => '199001-05-12'])
+            ->assertStatus(422)->assertJsonValidationErrors('date_of_birth');
+        $this->putJson("/api/v1/dcs/passengers/{$segment->passenger_id}", ['date_of_birth' => '1890-05-12'])
+            ->assertStatus(422)->assertJsonValidationErrors('date_of_birth');
     }
 }

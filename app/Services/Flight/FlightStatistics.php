@@ -110,7 +110,9 @@ class FlightStatistics
             'passengers' => $pax->pluck('passenger_segment_id')->unique()->count(),
             'crew_pieces' => (int) $crew->sum('pieces'),
             'crew_weight_kg' => (float) $crew->sum('weight_kg'),
-            'excess_amount' => (float) $pax->sum(fn ($b) => (float) $b->price + (float) $b->excess_price),
+            // waived excess was not collected
+            'excess_amount' => (float) $pax->sum(fn ($b) => (float) $b->price + (float) $b->excess_price - (float) $b->waived_amount),
+            'waived_amount' => (float) $pax->sum('waived_amount'),
         ];
     }
 

@@ -22,6 +22,7 @@ class CheckedBaggage extends Model
             'free_allowance_kg' => 'decimal:1',
             'price' => 'decimal:2',
             'excess_price' => 'decimal:2',
+            'waived_amount' => 'decimal:2',
         ];
     }
 

@@ -9,6 +9,7 @@ use App\Services\Flight\FlightOperationsService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 /** Online check-in settings that can be applied to many flights at once (legacy templates / shop). */
 class ServiceTemplateController extends AirlineCrudController
@@ -30,7 +31,7 @@ class ServiceTemplateController extends AirlineCrudController
 
     protected function with(): array
     {
-        return ['baggageRules', 'seatPrices'];
+        return ['aircraft', 'seatAssignmentProfile', 'baggageRules', 'seatPrices'];
     }
 
     protected function nonAttributes(): array
@@ -41,23 +42,30 @@ class ServiceTemplateController extends AirlineCrudController
     protected function rules(Request $request, ?Model $model): array
     {
         $required = $model ? 'sometimes' : 'required';
+        $airlineId = $this->targetAirlineId($request, $model);
+        $aircraftId = $request->has('aircraft_id') ? $request->input('aircraft_id') : $model?->getAttribute('aircraft_id');
 
         return [
-            'aircraft_id' => [$required, 'integer', 'exists:aircraft,id'],
+            // null = any aircraft of the airline; a seat assignment profile belongs to one aircraft
+            'aircraft_id' => ['nullable', 'integer', Rule::exists('aircraft', 'id')->where('airline_id', $airlineId)->whereNull('deleted_at')],
             'name' => [$required, 'string', 'max:255'],
-            'seat_assignment_profile_id' => ['nullable', 'integer', 'exists:seat_assignment_profiles,id'],
-            'checkin_opens_minutes' => ['nullable', 'integer', 'min:0'],
-            'checkin_closes_minutes' => ['nullable', 'integer', 'min:0'],
+            'seat_assignment_profile_id' => ['nullable', 'integer',
+                Rule::exists('seat_assignment_profiles', 'id')->where('aircraft_id', is_numeric($aircraftId) ? (int) $aircraftId : 0)],
+            'checkin_opens_minutes' => ['nullable', 'integer', 'min:0', 'max:10080'],
+            'checkin_closes_minutes' => ['nullable', 'integer', 'min:0', 'max:10080'],
             'baggage_rule_ids' => ['sometimes', 'array'],
-            'baggage_rule_ids.*' => ['integer', 'exists:baggage_rules,id'],
+            'baggage_rule_ids.*' => ['integer', Rule::exists('baggage_rules', 'id')->where('airline_id', $airlineId)],
             'seat_price_ids' => ['sometimes', 'array'],
-            'seat_price_ids.*' => ['integer', 'exists:seat_prices,id'],
+            'seat_price_ids.*' => ['integer', Rule::exists('seat_prices', 'id')->where('airline_id', $airlineId)],
         ];
     }
 
     protected function afterSave(Model $model, array $data): void
     {
         /** @var ServiceTemplate $model */
+        if ($model->seat_assignment_profile_id !== null && $model->seatAssignmentProfile?->aircraft_id !== $model->aircraft_id) {
+            $model->update(['seat_assignment_profile_id' => null]); // the aircraft changed, its profile no longer fits
+        }
         if (array_key_exists('baggage_rule_ids', $data)) {
             $model->baggageRules()->sync($data['baggage_rule_ids']);
         }

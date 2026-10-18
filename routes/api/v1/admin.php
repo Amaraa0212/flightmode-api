@@ -142,6 +142,8 @@ Route::middleware('can:reports.view')->group(function () {
 
 Route::get('activity-logs', [Admin\ActivityLogController::class, 'index'])->middleware('can:activity_logs.view');
 Route::get('issue-reports', [Admin\IssueReportController::class, 'index'])->middleware('can:issue_reports.view');
+Route::get('issue-reports/{issueReport}', [Admin\IssueReportController::class, 'show'])->middleware('can:issue_reports.view');
+Route::patch('issue-reports/{issueReport}', [Admin\IssueReportController::class, 'update'])->middleware('can:issue_reports.manage');
 Route::apiResource('announcements', Admin\AnnouncementController::class)->except(['show'])->middleware('can:announcements.manage');
 
 // Charter requests

@@ -14,7 +14,6 @@ use App\Models\PassengerSegment;
 use App\Services\ActivityLogger;
 use App\Services\Checkin\CheckinService;
 use App\Services\Checkin\PassengerScreening;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -34,7 +33,13 @@ class BaggageService
         private readonly PassengerScreening $screening,
     ) {}
 
-    /** Allowance / excess / price come from BaggagePricing, never from the client. @param array{baggage_rule_id: int, excess_baggage_rule_id?: ?int, pieces: int, weight_kg: float, description?: ?string} $data */
+    /**
+     * Allowance / excess / price come from BaggagePricing, never from the client. Excess must be paid
+     * (payment_reference) or waived (waive_reason + waive_authorized_by) before the bag is tagged.
+     *
+     * @param array{baggage_rule_id: int, excess_baggage_rule_id?: ?int, pieces: int, weight_kg: float, description?: ?string,
+     *              payment_reference?: ?string, waive_reason?: ?string, waive_authorized_by?: ?string} $data
+     */
     public function accept(PassengerSegment $segment, array $data): CheckedBaggage
     {
         return DB::transaction(function () use ($segment, $data) {
@@ -58,6 +63,7 @@ class BaggageService
             $rule = BaggageRule::query()->where('airline_id', $flight->airline_id)->findOrFail($data['baggage_rule_id']);
             $this->assertPieceLimit($segment, $rule, (int) $data['pieces']);
             $quote = $this->pricing->quote($segment, $rule, (int) $data['pieces'], (float) $data['weight_kg'], $flight);
+            $settlement = $this->settleExcess($quote['excess_price'], $data);
 
             $baggage = CheckedBaggage::create([
                 'flight_id' => $flight->id,
@@ -72,6 +78,7 @@ class BaggageService
                 'excess_price' => $quote['excess_price'],
                 'currency' => $flight->airline->currency,
                 'checkin_group_id' => $segment->checkin_group_id,
+                ...$settlement,
                 'description' => $data['description'] ?? null,
                 'created_by' => auth()->id(),
             ]);
@@ -85,6 +92,42 @@ class BaggageService
 
             return $baggage->load('tags', 'rule');
         });
+    }
+
+    /**
+     * Payment / waiver columns for an excess price. Nothing is needed when there is no excess.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function settleExcess(float $excessPrice, array $data): array
+    {
+        if ($excessPrice <= 0) {
+            return [];
+        }
+
+        $reference = trim((string) ($data['payment_reference'] ?? ''));
+        $reason = trim((string) ($data['waive_reason'] ?? ''));
+
+        if ($reference !== '') {
+            return ['payment_reference' => $reference];
+        }
+
+        if ($reason !== '') {
+            if (trim((string) ($data['waive_authorized_by'] ?? '')) === '') {
+                throw BusinessRuleException::make('waive_authorizer_required', 'Enter who allowed the excess baggage waiver.');
+            }
+
+            return [
+                'waived_amount' => $excessPrice,
+                'waive_reason' => $reason,
+                'waive_authorized_by' => trim((string) $data['waive_authorized_by']),
+                'waived_by' => auth()->id(),
+            ];
+        }
+
+        throw BusinessRuleException::make('excess_payment_required',
+            'Excess baggage must be paid (billing / transaction number) or waived with a reason.');
     }
 
     /** @param array{weight_kg: float, pieces?: int, description?: ?string} $data */
@@ -149,7 +192,7 @@ class BaggageService
      */
     public function assertPieceLimit(PassengerSegment $segment, BaggageRule $rule, int $pieces): void
     {
-        $members = $this->allowanceSegments($segment, $rule);
+        $members = $this->pricing->allowanceSegments($segment, $rule);
 
         $limit = 0;
         foreach ($members as $member) {
@@ -169,31 +212,6 @@ class BaggageService
             throw BusinessRuleException::make('baggage_limit_exceeded',
                 "Baggage limit for {$rule->name} exceeded ({$limit} piece(s) allowed{$scope}, {$left} left).");
         }
-    }
-
-    /**
-     * Segments whose allowance a bag may use: the passenger alone, or every confirmed adult of their check-in
-     * group on this flight that the rule applies to (same cabin).
-     *
-     * @return Collection<int, PassengerSegment>
-     */
-    private function allowanceSegments(PassengerSegment $segment, BaggageRule $rule): Collection
-    {
-        $segment->loadMissing('prepaidBaggage');
-        if (! $segment->checkin_group_id) {
-            return collect([$segment]);
-        }
-
-        $members = PassengerSegment::query()->with('prepaidBaggage')
-            ->where('flight_id', $segment->flight_id)
-            ->where('checkin_group_id', $segment->checkin_group_id)
-            ->whereNotIn('status', [SegmentStatus::Cancelled, SegmentStatus::Waitlisted])
-            ->whereHas('passenger', fn ($q) => $q->whereNull('infant_of_passenger_id'))
-            ->get()
-            ->filter(fn (PassengerSegment $s) => $rule->cabin_class === null || $s->cabin_class->value === $rule->cabin_class)
-            ->values();
-
-        return $members->contains('id', $segment->id) ? $members : $members->push($segment);
     }
 
     private function createTags(Flight $flight, CheckedBaggage $baggage, string $paxSequence): void

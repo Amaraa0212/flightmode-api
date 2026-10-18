@@ -100,7 +100,7 @@ class FlightSeriesService
             if (! $flight) {
                 $series->flights()->create($attributes + ['status' => FlightStatus::Scheduled, 'created_by' => auth()->id()]);
                 $created++;
-            } elseif ($flight->status === FlightStatus::Scheduled) {
+            } elseif ($flight->status === FlightStatus::Scheduled && ! $flight->is_series_override) {
                 $flight->fill($attributes);
                 if ($flight->isDirty()) {
                     $flight->save();
@@ -113,7 +113,7 @@ class FlightSeriesService
             if (isset($wanted[$date])) {
                 continue;
             }
-            if ($flight->segments_count > 0 || $flight->status !== FlightStatus::Scheduled) {
+            if ($flight->segments_count > 0 || $flight->status !== FlightStatus::Scheduled || $flight->is_series_override) {
                 $kept[] = $date;
 
                 continue;

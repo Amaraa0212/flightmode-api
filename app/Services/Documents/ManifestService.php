@@ -155,6 +155,10 @@ class ManifestService
                 'weight_kg' => (float) $b->weight_kg,
                 'price' => (float) $b->price,
                 'excess_price' => (float) $b->excess_price,
+                'payment_reference' => $b->payment_reference,
+                'waived_amount' => (float) $b->waived_amount,
+                'waive_reason' => $b->waive_reason,
+                'waive_authorized_by' => $b->waive_authorized_by,
                 'currency' => $b->currency,
                 'description' => $b->description,
             ])->values()->all();
