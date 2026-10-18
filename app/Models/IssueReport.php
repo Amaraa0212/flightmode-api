@@ -18,4 +18,14 @@ class IssueReport extends Model
     {
         return $this->belongsTo(User::class);
     }
+
+    public function airline(): BelongsTo
+    {
+        return $this->belongsTo(Airline::class);
+    }
+
+    public function agency(): BelongsTo
+    {
+        return $this->belongsTo(Agency::class);
+    }
 }

@@ -168,6 +168,7 @@ Broadcasting (Laravel Reverb): `POST /api/broadcasting/auth` — Sanctum Bearer,
 | POST | `/api/v1/admin/fare-classes/{fareClass}/discounts` | fares.manage | FareDiscountController@store |
 | PUT|PATCH | `/api/v1/admin/fare-classes/{fareClass}/discounts/{discount}` | fares.manage | FareDiscountController@update |
 | DELETE | `/api/v1/admin/fare-classes/{fareClass}/discounts/{discount}` | fares.manage | FareDiscountController@destroy |
+| GET | `/api/v1/admin/issue-reports` | issue_reports.view | IssueReportController@index |
 | GET | `/api/v1/admin/flight-board` | flights.operate | FlightOperationController@board |
 | GET | `/api/v1/admin/flight-series` | flights.manage | FlightSeriesController@index |
 | POST | `/api/v1/admin/flight-series` | flights.manage | FlightSeriesController@store |
