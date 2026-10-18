@@ -24,6 +24,9 @@ class IssueReportResource extends JsonResource
             'message' => $this->message,
             'user_agent' => $this->user_agent,
             'status' => $this->status,
+            'resolution_note' => $this->resolution_note,
+            'resolved_by' => $this->whenLoaded('resolver', fn () => $this->resolver?->only(['id', 'name', 'email'])),
+            'resolved_at' => $this->resolved_at?->toIso8601String(),
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
         ];

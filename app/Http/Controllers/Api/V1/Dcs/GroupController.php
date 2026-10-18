@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Api\V1\Dcs;
 
 use App\Enums\ActivityChannel;
+use App\Exceptions\BusinessRuleException;
 use App\Http\Controllers\Controller;
+use App\Models\CheckedBaggage;
 use App\Models\CheckinGroup;
 use App\Models\Flight;
 use App\Models\PassengerSegment;
@@ -53,6 +55,13 @@ class GroupController extends Controller
     {
         $this->access->ensureFlight($request->user(), $segment->flight);
         $groupId = $segment->checkin_group_id;
+
+        // the group's bags were accepted against every member's allowance — taking one out would leave them over it
+        if ($groupId && CheckedBaggage::query()->where('checkin_group_id', $groupId)->exists()) {
+            throw BusinessRuleException::make('group_has_baggage',
+                'This group has checked baggage. Delete the group baggage before removing a passenger from the group.');
+        }
+
         $segment->update(['checkin_group_id' => null]);
 
         if ($groupId && ! PassengerSegment::query()->where('checkin_group_id', $groupId)->exists()) {

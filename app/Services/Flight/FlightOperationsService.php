@@ -21,6 +21,12 @@ use Illuminate\Support\Facades\DB;
  */
 class FlightOperationsService
 {
+    /** Fields a flight series writes on its flights. */
+    private const SERIES_FIELDS = [
+        'aircraft_id', 'flight_number', 'origin_airport_id', 'destination_airport_id', 'scheduled_departure_at',
+        'scheduled_arrival_at', 'gate', 'excess_baggage_max_kg', 'excess_baggage_price_per_kg',
+    ];
+
     public function __construct(
         private readonly ActivityLogger $logger,
         private readonly ChinggisSync $chinggis,
@@ -30,7 +36,12 @@ class FlightOperationsService
     public function update(Flight $flight, array $data): Flight
     {
         $original = $flight->getOriginal();
-        $flight->fill($data)->save();
+        $flight->fill($data);
+        // a series flight changed by hand keeps its own schedule when the series is saved again
+        if ($flight->flight_series_id && $flight->isDirty(self::SERIES_FIELDS)) {
+            $flight->is_series_override = true;
+        }
+        $flight->save();
 
         $this->logger->logChanges(ActivityChannel::Admin, 'flight.updated', $flight, $original,
             $flight->flight_number, $flight);
@@ -173,19 +184,19 @@ class FlightOperationsService
         $count = 0;
 
         foreach ($flights as $flight) {
-            if ((int) $flight->aircraft_id !== (int) $template->aircraft_id) {
+            if ($template->aircraft_id !== null && (int) $flight->aircraft_id !== (int) $template->aircraft_id) {
                 throw BusinessRuleException::make('template_other_aircraft',
                     "Template is for another aircraft than flight {$flight->flight_number}.");
             }
 
+            // An any-aircraft template has no seat profile: the flight keeps its own
             $this->setOnlineCheckin($flight, [
                 'online_checkin_enabled' => true,
                 'online_checkin_opens_minutes' => $template->checkin_opens_minutes,
                 'online_checkin_closes_minutes' => $template->checkin_closes_minutes,
-                'seat_assignment_profile_id' => $template->seat_assignment_profile_id,
                 'baggage_rule_ids' => $template->baggageRules->pluck('id')->all(),
                 'seat_price_ids' => $template->seatPrices->pluck('id')->all(),
-            ]);
+            ] + ($template->aircraft_id === null ? [] : ['seat_assignment_profile_id' => $template->seat_assignment_profile_id]));
             $count++;
         }
 

@@ -29,6 +29,7 @@ class Flight extends Model
             'takeoff_at' => 'datetime',
             'estimated_arrival_at' => 'datetime',
             'is_published' => 'boolean',
+            'is_series_override' => 'boolean',
             'online_checkin_enabled' => 'boolean',
             'excess_baggage_max_kg' => 'decimal:1',
             'excess_baggage_price_per_kg' => 'decimal:2',

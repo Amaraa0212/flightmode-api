@@ -28,6 +28,7 @@ enum PermissionKey: string
     case ReportsView = 'reports.view';
     case ActivityLogsView = 'activity_logs.view';
     case IssueReportsView = 'issue_reports.view';
+    case IssueReportsManage = 'issue_reports.manage';
     case AnnouncementsManage = 'announcements.manage';
     case ChartersView = 'charters.view';
     case ChartersManage = 'charters.manage';
@@ -62,6 +63,7 @@ enum PermissionKey: string
             self::ReportsView => 'Reports',
             self::ActivityLogsView => 'Activity log',
             self::IssueReportsView => 'Reported issues',
+            self::IssueReportsManage => 'Process reported issues',
             self::AnnouncementsManage => 'Manage announcements',
             self::ChartersView => 'View charter requests',
             self::ChartersManage => 'Create / process charter requests',

@@ -18,7 +18,7 @@ class RoleSeeder extends Seeder
             ['slug' => 'airline-admin', 'name' => 'Airline administrator', 'scope' => RoleScope::Airline, 'permissions' => [
                 P::DashboardView, P::AirlinesManage, P::AgenciesManage, P::UsersManage, P::AircraftManage, P::FaresManage,
                 P::ProductsManage, P::FlightsView, P::FlightsManage, P::FlightOperations, P::SeatBlocksManage,
-                P::AllocationsManage, P::BookingsView, P::BookingsManage, P::ReportsView, P::ActivityLogsView, P::IssueReportsView,
+                P::AllocationsManage, P::BookingsView, P::BookingsManage, P::ReportsView, P::ActivityLogsView, P::IssueReportsView, P::IssueReportsManage,
                 P::AnnouncementsManage, P::ChartersView, P::ChartersManage, P::DcsAccess, P::DcsCheckin, P::GateAccess,
             ]],
             ['slug' => 'airline-staff', 'name' => 'Airline staff', 'scope' => RoleScope::Airline, 'permissions' => [

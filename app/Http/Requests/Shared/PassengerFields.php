@@ -9,6 +9,9 @@ use Illuminate\Validation\Rule;
 /** Validation rules of passenger fields, shared by every endpoint that creates or edits passengers. */
 final class PassengerFields
 {
+    /** A 4-digit year first: `date` alone lets typos like 199001-05-12 through. */
+    private const FOUR_DIGIT_YEAR = 'regex:/^\d{4}-\d{2}-\d{2}/';
+
     /** @return array<string, mixed> */
     public static function rules(string $prefix = '', bool $creating = true, bool $withTravel = true): array
     {
@@ -19,7 +22,7 @@ final class PassengerFields
             $prefix.'middle_name' => ['nullable', 'string', 'max:100'],
             $prefix.'last_name' => [$required, 'string', 'max:100'],
             $prefix.'gender' => ['nullable', Rule::enum(Gender::class)],
-            $prefix.'date_of_birth' => ['nullable', 'date', 'before:today'],
+            $prefix.'date_of_birth' => ['nullable', 'date', self::FOUR_DIGIT_YEAR, 'after:1900-01-01', 'before:today'],
             $prefix.'nationality' => ['nullable', 'string', 'between:2,3'],
             $prefix.'person_code' => ['nullable', 'string', 'max:20'],
             $prefix.'document_type' => ['nullable', 'string', 'max:20'],
@@ -50,7 +53,7 @@ final class PassengerFields
             foreach (self::rules($prefix.'infant.', true, false) as $field => $fieldRules) {
                 $rules[$field] = array_map(fn ($r) => $r === 'required' ? 'required_with:'.$prefix.'infant' : $r, $fieldRules);
             }
-            $rules[$prefix.'infant.date_of_birth'] = ['required_with:'.$prefix.'infant', 'nullable', 'date', 'before_or_equal:today'];
+            $rules[$prefix.'infant.date_of_birth'] = ['required_with:'.$prefix.'infant', 'nullable', 'date', self::FOUR_DIGIT_YEAR, 'after:1900-01-01', 'before_or_equal:today'];
         }
 
         return $rules;

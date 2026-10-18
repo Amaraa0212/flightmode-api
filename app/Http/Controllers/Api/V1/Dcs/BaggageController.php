@@ -67,6 +67,9 @@ class BaggageController extends Controller
             'pieces' => ['required', 'integer', 'min:1', 'max:20'],
             'weight_kg' => ['required', 'numeric', 'min:0.1', 'max:999'],
             'description' => ['nullable', 'string', 'max:255'],
+            'payment_reference' => ['nullable', 'string', 'max:100'],
+            'waive_reason' => ['nullable', 'string', 'max:500'],
+            'waive_authorized_by' => ['nullable', 'string', 'max:100'],
         ]);
 
         return $this->created('Baggage accepted.', new CheckedBaggageResource($this->baggage->accept($segment, $data)));

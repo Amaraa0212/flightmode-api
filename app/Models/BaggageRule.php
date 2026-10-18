@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *  - FBAG: free allowance (no piece limit)
  *  - XBAG: prepaid extra bag (limited by prepaid_baggage pieces)
  *  - EBAG: excess baggage (no piece limit)
- *  - otherwise: piece rules are limited by max_quantity
+ *  - otherwise: piece / combined rules are limited by max_quantity
  */
 class BaggageRule extends Model
 {
@@ -55,8 +55,19 @@ class BaggageRule extends Model
         return match (true) {
             $this->isSsr(self::SSR_FREE), $this->isSsr(self::SSR_EXCESS) => null,
             $this->isSsr(self::SSR_PREPAID) => $prepaidPieces,
-            $this->type === BaggageRuleType::Piece => $this->max_quantity,
+            in_array($this->type, [BaggageRuleType::Piece, BaggageRuleType::Combined], true) => $this->max_quantity,
             default => null,
         };
+    }
+
+    public function isCombined(): bool
+    {
+        return $this->type === BaggageRuleType::Combined;
+    }
+
+    /** Free kg one passenger gets under a combined rule (shared by all their bags of this rule). */
+    public function freeWeightPerPassenger(): float
+    {
+        return (float) $this->weight_kg * max(1, (int) $this->pieces);
     }
 }

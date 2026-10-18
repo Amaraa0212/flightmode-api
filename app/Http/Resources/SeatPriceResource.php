@@ -14,8 +14,11 @@ class SeatPriceResource extends JsonResource
         return [
             'id' => $this->id,
             'airline_id' => $this->airline_id,
+            'name' => $this->name ?? trim("{$this->cabin_class->value} {$this->seat_type?->value}"),
             'cabin_class' => $this->cabin_class->value,
             'seat_type' => $this->seat_type?->value,
+            'rows' => $this->rows,
+            'position' => $this->position,
             'price' => $this->price,
             'currency' => $this->currency,
             'is_active' => $this->is_active,

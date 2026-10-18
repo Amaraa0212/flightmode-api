@@ -32,8 +32,11 @@ class SeatPriceController extends AirlineCrudController
         $required = $model ? 'sometimes' : 'required';
 
         return [
+            'name' => [$required, 'string', 'max:100'],
             'cabin_class' => [$required, Rule::enum(CabinClass::class)],
             'seat_type' => ['nullable', Rule::enum(SeatType::class)],
+            'rows' => ['nullable', 'string', 'max:50', 'regex:/^\d{1,3}(-\d{1,3})?(,\d{1,3}(-\d{1,3})?)*$/'],
+            'position' => ['sometimes', 'integer', 'min:1', 'max:999'],
             'price' => [$required, 'numeric', 'min:0'],
             'currency' => ['nullable', 'string', 'size:3'],
             'is_active' => ['boolean'],

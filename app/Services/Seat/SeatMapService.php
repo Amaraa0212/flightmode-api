@@ -39,7 +39,10 @@ class SeatMapService
 
         $occupied = $this->occupiedSeats($flight);
         $blocked = $flight->seatBlocks()->pluck('seat_number')->flip();
-        $prices = $flight->seatPrices()->where('is_active', true)->get();
+        // First matching rule wins: lowest position, then the most specific
+        $prices = $flight->seatPrices()->where('is_active', true)->get()
+            ->sortBy([['position', 'asc'], fn (SeatPrice $a, SeatPrice $b) => $b->specificity() <=> $a->specificity()])
+            ->values();
         $restrictedZones = $forOnlineCheckin ? $this->closedZonesForOnline($flight, $seats, $occupied) : [];
         $excludedZones = $forOnlineCheckin ? (array) config('flightmode.online_checkin.excluded_zones', []) : [];
         $held = $forOnlineCheckin ? $this->holds->holds($flight->id) : [];
@@ -147,10 +150,7 @@ class SeatMapService
     /** @param Collection<int, SeatPrice> $prices */
     private function priceFor(AircraftSeat $seat, Collection $prices): ?string
     {
-        $specific = $prices->first(fn (SeatPrice $p) => $p->seat_type !== null && $p->appliesTo($seat));
-        $price = $specific ?? $prices->first(fn (SeatPrice $p) => $p->appliesTo($seat));
-
-        return $price?->price;
+        return $prices->first(fn (SeatPrice $p) => $p->appliesTo($seat))?->price;
     }
 
     /**
