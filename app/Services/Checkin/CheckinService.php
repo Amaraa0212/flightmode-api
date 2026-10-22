@@ -116,6 +116,37 @@ class CheckinService
         });
     }
 
+    /**
+     * Keep a seat for a booked passenger without checking them in (counter: click the passenger, then a seat).
+     * The check-in that follows takes this seat; null gives it back. Checked-in passengers change seat through checkIn.
+     */
+    public function holdSeat(PassengerSegment $segment, ?string $seatNumber): PassengerSegment
+    {
+        return DB::transaction(function () use ($segment, $seatNumber) {
+            /** @var Flight $flight */
+            $flight = Flight::query()->lockForUpdate()->findOrFail($segment->flight_id);
+            $segment = PassengerSegment::query()->with('passenger')->lockForUpdate()->findOrFail($segment->id);
+
+            if ($segment->passenger->isInfant()) {
+                throw BusinessRuleException::make('infant_seat', 'Infants sit with their adult.');
+            }
+            if ($segment->status !== SegmentStatus::Booked) {
+                throw BusinessRuleException::make('segment_not_booked', 'Only a booked passenger (not checked in yet) can be given a seat to hold.');
+            }
+
+            $oldSeat = $segment->seat_number;
+            $seat = $seatNumber ? $this->requestedSeat($flight, $segment, strtoupper($seatNumber)) : null;
+            // a seat in another cabin moves the passenger there, the same as at check-in
+            $segment->update(['seat_number' => $seat?->seat_number] + ($seat ? ['cabin_class' => $seat->cabin_class] : []));
+
+            $this->logger->log(ActivityChannel::Dcs, $seat ? 'passenger.seat_reserved' : 'passenger.seat_released',
+                $seat ? "Seat {$seat->seat_number} held (not checked in)" : "Seat {$oldSeat} released",
+                $segment, $flight, $segment->passenger_id, ['seat_from' => $oldSeat, 'seat_to' => $seat?->seat_number]);
+
+            return $segment->refresh();
+        });
+    }
+
     /** Undo check-in: the passenger goes back to "booked" and loses the seat. */
     public function cancelCheckin(PassengerSegment $segment): PassengerSegment
     {

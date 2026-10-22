@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
+use App\Enums\ActivityChannel;
 use App\Enums\FlightStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\FlightRequest;
@@ -9,6 +10,7 @@ use App\Http\Resources\FlightResource;
 use App\Http\Resources\SegmentResource;
 use App\Models\Flight;
 use App\Services\Access\AccessScope;
+use App\Services\ActivityLogger;
 use App\Services\Allocation\AllocationService;
 use App\Services\Flight\FlightOperationsService;
 use App\Services\Flight\FlightStatistics;
@@ -16,6 +18,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class FlightController extends Controller
 {
@@ -23,11 +27,13 @@ class FlightController extends Controller
         private readonly AccessScope $access,
         private readonly FlightOperationsService $operations,
         private readonly FlightStatistics $statistics,
+        private readonly ActivityLogger $logger,
     ) {}
 
     /**
      * Filters: from, to (dates, default: this month), status, airline_id, origin_airport_id, destination_airport_id, flight_number,
      * search (flight number, origin / destination IATA, aircraft registration), source (single | series),
+     * service_type (scheduled | charter),
      * open (not departed / cancelled), with_products (baggage rules, seat prices, zone profile, blocked seats).
      */
     public function index(Request $request): AnonymousResourceCollection
@@ -54,12 +60,39 @@ class FlightController extends Controller
             ->when($request->boolean('open'), fn ($q) => $q->whereNotIn('status', [FlightStatus::Departed, FlightStatus::Cancelled]))
             ->when($request->boolean('with_products'), fn ($q) => $q->with(['baggageRules:id,name', 'seatAssignmentProfile:id,name'])
                 ->withCount(['seatPrices', 'seatBlocks']))
+            ->when($request->filled('service_type'), fn ($q) => $q->where('service_type', $request->string('service_type')))
             ->when($request->input('source') === 'single', fn ($q) => $q->whereNull('flight_series_id'))
             ->when($request->input('source') === 'series', fn ($q) => $q->whereNotNull('flight_series_id'))
             ->orderBy('scheduled_departure_at')
             ->paginate($request->integer('per_page', 100));
 
         return FlightResource::collection($flights);
+    }
+
+    /**
+     * Shop items of one flight: its baggage rules, seat prices and online seat profile
+     * (a template applies the same to many flights at once).
+     */
+    public function updateProducts(Request $request, Flight $flight): JsonResponse
+    {
+        $this->access->ensureAirlineOwned($request->user(), $flight);
+        $data = $request->validate([
+            'baggage_rule_ids' => ['present', 'array'],
+            'baggage_rule_ids.*' => ['integer', Rule::exists('baggage_rules', 'id')->where('airline_id', $flight->airline_id)],
+            'seat_price_ids' => ['present', 'array'],
+            'seat_price_ids.*' => ['integer', Rule::exists('seat_prices', 'id')->where('airline_id', $flight->airline_id)],
+            'seat_assignment_profile_id' => ['nullable', 'integer', Rule::exists('seat_assignment_profiles', 'id')->where('aircraft_id', $flight->aircraft_id)],
+        ]);
+
+        DB::transaction(function () use ($flight, $data) {
+            $flight->baggageRules()->sync($data['baggage_rule_ids']);
+            $flight->seatPrices()->sync($data['seat_price_ids']);
+            $flight->update(['seat_assignment_profile_id' => $data['seat_assignment_profile_id'] ?? null]);
+        });
+        $this->logger->log(ActivityChannel::Admin, 'flight.products_updated',
+            count($data['baggage_rule_ids']).' baggage rule(s), '.count($data['seat_price_ids']).' seat price(s)', $flight, $flight);
+
+        return $this->success('Shop items saved.', new FlightResource($flight->load(['baggageRules', 'seatPrices', 'seatAssignmentProfile'])->loadCount(['seatPrices', 'seatBlocks'])));
     }
 
     public function store(FlightRequest $request): JsonResponse

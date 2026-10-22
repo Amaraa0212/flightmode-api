@@ -3,8 +3,11 @@
 namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Enums\RoleScope;
+use App\Enums\SegmentStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\FlightResource;
+use App\Models\Agency;
+use App\Models\AgencyAllocation;
 use App\Models\Flight;
 use App\Models\User;
 use App\Services\Access\AccessScope;
@@ -12,6 +15,7 @@ use App\Services\Flight\FlightOperationsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -36,7 +40,60 @@ class FlightOperationController extends Controller
             ->sortBy(fn (Flight $f) => $f->departureAt())
             ->values();
 
-        return response()->json(['data' => FlightResource::collection($flights)->resolve()]);
+        $sales = $this->agencySales($flights->pluck('id')->all());
+        $rows = FlightResource::collection($flights)->resolve();
+        foreach ($rows as $i => $row) {
+            $rows[$i]['agency_sales'] = $sales[$row['id']] ?? [];
+        }
+
+        return response()->json(['data' => $rows]);
+    }
+
+    /**
+     * Seats sold per agency on each flight (quota seats and passengers holding a seat, infants left out) —
+     * the flight load summary. Direct sales (no agency) are listed as agency null.
+     *
+     * @param  array<int>  $flightIds
+     * @return array<int, list<array{agency: ?array{id: int, name: string}, seats: int, sold: int}>>
+     */
+    private function agencySales(array $flightIds): array
+    {
+        if ($flightIds === []) {
+            return [];
+        }
+
+        $sold = DB::table('passenger_segments')
+            ->join('passengers', 'passengers.id', '=', 'passenger_segments.passenger_id')
+            ->join('bookings', 'bookings.id', '=', 'passengers.booking_id')
+            ->whereIn('passenger_segments.flight_id', $flightIds)
+            ->whereNotIn('passenger_segments.status', [SegmentStatus::Cancelled->value, SegmentStatus::Waitlisted->value])
+            ->whereNull('passengers.infant_of_passenger_id')
+            ->groupBy('passenger_segments.flight_id', 'bookings.agency_id')
+            ->selectRaw('passenger_segments.flight_id, bookings.agency_id, COUNT(*) as sold')
+            ->get();
+
+        $quotas = AgencyAllocation::query()
+            ->where(fn ($q) => $q->whereIn('outbound_flight_id', $flightIds)->orWhereIn('return_flight_id', $flightIds))
+            ->get(['agency_id', 'outbound_flight_id', 'return_flight_id', 'seats']);
+
+        $agencies = Agency::query()->whereIn('id', $sold->pluck('agency_id')->merge($quotas->pluck('agency_id'))->filter()->unique())
+            ->pluck('name', 'id');
+
+        $result = [];
+        foreach ($flightIds as $flightId) {
+            $seats = $quotas->filter(fn ($a) => in_array($flightId, [$a->outbound_flight_id, $a->return_flight_id], true))
+                ->groupBy('agency_id')->map->sum('seats');
+            $soldHere = $sold->where('flight_id', $flightId)->keyBy(fn ($r) => $r->agency_id ?? 0);
+            $ids = $seats->keys()->merge($soldHere->keys())->unique();
+
+            $result[$flightId] = $ids->map(fn ($id) => [
+                'agency' => $id ? ['id' => (int) $id, 'name' => $agencies[$id] ?? '—'] : null,
+                'seats' => (int) ($seats[$id] ?? 0),
+                'sold' => (int) ($soldHere[$id]->sold ?? 0),
+            ])->sortByDesc('sold')->values()->all();
+        }
+
+        return $result;
     }
 
     public function changeStatus(Request $request, Flight $flight): JsonResponse

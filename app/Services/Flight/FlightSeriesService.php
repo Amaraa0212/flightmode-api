@@ -87,6 +87,7 @@ class FlightSeriesService
                 'airline_id' => $series->airline_id,
                 'aircraft_id' => $series->aircraft_id,
                 'flight_number' => $series->flight_number,
+                'service_type' => $series->service_type ?? 'scheduled',
                 'origin_airport_id' => $series->origin_airport_id,
                 'destination_airport_id' => $series->destination_airport_id,
                 'scheduled_departure_at' => $departure,

@@ -24,6 +24,7 @@ class AirlineResource extends JsonResource
             'logo_path' => $this->logo_path,
             'brand_color' => $this->brand_color,
             'conditions_of_carriage' => $this->conditions_of_carriage,
+            'updated_at' => $this->updated_at?->toIso8601String(),
             'bag_tag_layout' => $this->bag_tag_layout,
             'currency' => $this->currency,
             'is_active' => $this->is_active,

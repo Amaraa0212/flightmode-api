@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\FlightServiceType;
 use App\Enums\FlightStatus;
 use App\Enums\SegmentStatus;
 use Illuminate\Database\Eloquent\Builder;
@@ -22,6 +23,7 @@ class Flight extends Model
     {
         return [
             'status' => FlightStatus::class,
+            'service_type' => FlightServiceType::class,
             'scheduled_departure_at' => 'datetime',
             'scheduled_arrival_at' => 'datetime',
             'estimated_departure_at' => 'datetime',
@@ -126,6 +128,11 @@ class Flight extends Model
     public function isDomestic(): bool
     {
         return $this->origin && $this->destination && $this->origin->isSameCountryAs($this->destination);
+    }
+
+    public function isCharter(): bool
+    {
+        return $this->service_type === FlightServiceType::Charter;
     }
 
     public function isCheckinOpen(): bool

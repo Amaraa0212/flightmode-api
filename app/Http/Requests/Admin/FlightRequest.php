@@ -2,8 +2,10 @@
 
 namespace App\Http\Requests\Admin;
 
+use App\Enums\FlightServiceType;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Carbon;
+use Illuminate\Validation\Rule;
 
 class FlightRequest extends FormRequest
 {
@@ -22,6 +24,7 @@ class FlightRequest extends FormRequest
             'terminal' => ['nullable', 'string', 'max:5'],
             'gate' => ['nullable', 'string', 'max:10'],
             'is_published' => ['boolean'],
+            'service_type' => ['sometimes', Rule::enum(FlightServiceType::class)],
             'excess_baggage_max_kg' => ['nullable', 'numeric', 'min:0'],
             'excess_baggage_price_per_kg' => ['nullable', 'numeric', 'min:0'],
         ];
