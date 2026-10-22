@@ -102,7 +102,7 @@ class SeatMapGenerator
     {
         $capacity = $aircraft->cabins()->where('cabin_class', $cabin->value)->value('seat_count');
         if ($capacity === null) {
-            throw BusinessRuleException::make('cabin_not_configured', "Cabin {$cabin->value} is not configured on this aircraft.");
+            throw BusinessRuleException::make('cabin_not_configured', "Cabin {$cabin->value} is not configured on this aircraft — add it to the seat configuration in Fleets (e.g. W16Y120).");
         }
 
         $existing = AircraftSeat::query()->where('aircraft_id', $aircraft->id)->where('cabin_class', $cabin->value)

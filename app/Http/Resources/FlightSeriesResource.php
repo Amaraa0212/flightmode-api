@@ -16,6 +16,7 @@ class FlightSeriesResource extends JsonResource
             'airline_id' => $this->airline_id,
             'aircraft_id' => $this->aircraft_id,
             'flight_number' => $this->flight_number,
+            'service_type' => $this->service_type ?? 'scheduled',
             'origin_airport_id' => $this->origin_airport_id,
             'destination_airport_id' => $this->destination_airport_id,
             'origin' => $this->whenLoaded('origin', fn () => $this->origin->iata_code),

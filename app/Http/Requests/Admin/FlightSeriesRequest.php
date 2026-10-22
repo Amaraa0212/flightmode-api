@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests\Admin;
 
+use App\Enums\FlightServiceType;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class FlightSeriesRequest extends FormRequest
 {
@@ -12,6 +14,7 @@ class FlightSeriesRequest extends FormRequest
             'airline_id' => ['nullable', 'integer', 'exists:airlines,id'],
             'aircraft_id' => ['nullable', 'integer', 'exists:aircraft,id'],
             'flight_number' => ['required', 'string', 'max:10'],
+            'service_type' => ['sometimes', Rule::enum(FlightServiceType::class)],
             'origin_airport_id' => ['required', 'integer', 'exists:airports,id'],
             'destination_airport_id' => ['required', 'integer', 'exists:airports,id', 'different:origin_airport_id'],
             'period_start' => ['required', 'date'],

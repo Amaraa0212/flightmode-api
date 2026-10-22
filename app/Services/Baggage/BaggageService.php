@@ -26,6 +26,8 @@ class BaggageService
 {
     public const CREW_SEQUENCE = '999';
 
+    public const CARGO_SEQUENCE = '998';
+
     public function __construct(
         private readonly CheckinService $checkin,
         private readonly ActivityLogger $logger,
@@ -36,8 +38,9 @@ class BaggageService
     /**
      * Allowance / excess / price come from BaggagePricing, never from the client. Excess must be paid
      * (payment_reference) or waived (waive_reason + waive_authorized_by) before the bag is tagged.
+     * A charter flight takes every bag free: no rule, no piece limit, no excess (legacy DCS).
      *
-     * @param array{baggage_rule_id: int, excess_baggage_rule_id?: ?int, pieces: int, weight_kg: float, description?: ?string,
+     * @param array{baggage_rule_id?: ?int, excess_baggage_rule_id?: ?int, pieces: int, weight_kg: float, description?: ?string,
      *              payment_reference?: ?string, waive_reason?: ?string, waive_authorized_by?: ?string} $data
      */
     public function accept(PassengerSegment $segment, array $data): CheckedBaggage
@@ -60,16 +63,22 @@ class BaggageService
                 $segment->update(['boarding_sequence' => $this->checkin->nextBoardingSequence($flight)]);
             }
 
-            $rule = BaggageRule::query()->where('airline_id', $flight->airline_id)->findOrFail($data['baggage_rule_id']);
-            $this->assertPieceLimit($segment, $rule, (int) $data['pieces']);
-            $quote = $this->pricing->quote($segment, $rule, (int) $data['pieces'], (float) $data['weight_kg'], $flight);
-            $settlement = $this->settleExcess($quote['excess_price'], $data);
+            if ($flight->isCharter()) {
+                $rule = null;
+                $quote = ['free_allowance_kg' => (float) $data['weight_kg'], 'price' => 0.0, 'excess_price' => 0.0];
+                $settlement = [];
+            } else {
+                $rule = BaggageRule::query()->where('airline_id', $flight->airline_id)->findOrFail($data['baggage_rule_id'] ?? 0);
+                $this->assertPieceLimit($segment, $rule, (int) $data['pieces']);
+                $quote = $this->pricing->quote($segment, $rule, (int) $data['pieces'], (float) $data['weight_kg'], $flight);
+                $settlement = $this->settleExcess($quote['excess_price'], $data);
+            }
 
             $baggage = CheckedBaggage::create([
                 'flight_id' => $flight->id,
                 'passenger_segment_id' => $segment->id,
                 'type' => BaggageType::Passenger,
-                'baggage_rule_id' => $rule->id,
+                'baggage_rule_id' => $rule?->id,
                 'excess_baggage_rule_id' => $data['excess_baggage_rule_id'] ?? null,
                 'pieces' => $data['pieces'],
                 'weight_kg' => $data['weight_kg'],
@@ -133,15 +142,27 @@ class BaggageService
     /** @param array{weight_kg: float, pieces?: int, description?: ?string} $data */
     public function acceptCrew(Flight $flight, array $data): CheckedBaggage
     {
-        return DB::transaction(function () use ($flight, $data) {
+        return $this->acceptWithoutPassenger($flight, $data, BaggageType::Crew);
+    }
+
+    /** Cargo / mail tagged at the counter: its own CARGO tags, kept out of the passengers' baggage. @param array{weight_kg: float, pieces?: int, description?: ?string} $data */
+    public function acceptCargo(Flight $flight, array $data): CheckedBaggage
+    {
+        return $this->acceptWithoutPassenger($flight, $data, BaggageType::Cargo);
+    }
+
+    /** @param array{weight_kg: float, pieces?: int, crew_name?: ?string, description?: ?string} $data */
+    private function acceptWithoutPassenger(Flight $flight, array $data, BaggageType $type): CheckedBaggage
+    {
+        return DB::transaction(function () use ($flight, $data, $type) {
             $flight = Flight::query()->with('airline')->lockForUpdate()->findOrFail($flight->id);
             $this->checkin->assertCounterOpen($flight);
 
             $baggage = CheckedBaggage::create([
                 'flight_id' => $flight->id,
                 'passenger_segment_id' => null,
-                'type' => BaggageType::Crew,
-                'crew_name' => isset($data['crew_name']) ? mb_strtoupper(trim($data['crew_name'])) : null,
+                'type' => $type,
+                'crew_name' => $type === BaggageType::Crew && isset($data['crew_name']) ? mb_strtoupper(trim($data['crew_name'])) : null,
                 'pieces' => $data['pieces'] ?? 1,
                 'weight_kg' => $data['weight_kg'],
                 'currency' => $flight->airline->currency,
@@ -149,10 +170,12 @@ class BaggageService
                 'created_by' => auth()->id(),
             ]);
 
-            $this->createTags($flight, $baggage, self::CREW_SEQUENCE);
+            $cargo = $type === BaggageType::Cargo;
+            $this->createTags($flight, $baggage, $cargo ? self::CARGO_SEQUENCE : self::CREW_SEQUENCE);
 
-            $this->logger->log(ActivityChannel::Dcs, 'baggage.crew_added',
-                'Crew bag tags: '.$baggage->tags->pluck('tag_number')->implode(', ').($baggage->crew_name ? " ({$baggage->crew_name})" : ''), $baggage, $flight);
+            $this->logger->log(ActivityChannel::Dcs, $cargo ? 'baggage.cargo_added' : 'baggage.crew_added',
+                ($cargo ? 'Cargo tags: ' : 'Crew bag tags: ').$baggage->tags->pluck('tag_number')->implode(', ')
+                .($baggage->crew_name ? " ({$baggage->crew_name})" : '').($cargo && $baggage->description ? " ({$baggage->description})" : ''), $baggage, $flight);
 
             return $baggage->load('tags');
         });

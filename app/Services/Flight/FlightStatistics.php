@@ -2,6 +2,7 @@
 
 namespace App\Services\Flight;
 
+use App\Enums\BaggageType;
 use App\Enums\CabinClass;
 use App\Enums\CheckinChannel;
 use App\Enums\Gender;
@@ -97,12 +98,13 @@ class FlightStatistics
             ->sortKeys()->values()->all();
     }
 
-    /** @return array{pieces: int, weight_kg: float, passengers: int, crew_pieces: int, crew_weight_kg: float, excess_amount: float} */
+    /** @return array{pieces: int, weight_kg: float, passengers: int, crew_pieces: int, crew_weight_kg: float, cargo_pieces: int, cargo_weight_kg: float, excess_amount: float, waived_amount: float} */
     public function baggage(Flight $flight): array
     {
         $all = CheckedBaggage::query()->where('flight_id', $flight->id)->get();
         $pax = $all->whereNotNull('passenger_segment_id');
-        $crew = $all->whereNull('passenger_segment_id');
+        $crew = $all->where('type', BaggageType::Crew);
+        $cargo = $all->where('type', BaggageType::Cargo);
 
         return [
             'pieces' => (int) $pax->sum('pieces'),
@@ -110,6 +112,8 @@ class FlightStatistics
             'passengers' => $pax->pluck('passenger_segment_id')->unique()->count(),
             'crew_pieces' => (int) $crew->sum('pieces'),
             'crew_weight_kg' => (float) $crew->sum('weight_kg'),
+            'cargo_pieces' => (int) $cargo->sum('pieces'),
+            'cargo_weight_kg' => (float) $cargo->sum('weight_kg'),
             // waived excess was not collected
             'excess_amount' => (float) $pax->sum(fn ($b) => (float) $b->price + (float) $b->excess_price - (float) $b->waived_amount),
             'waived_amount' => (float) $pax->sum('waived_amount'),

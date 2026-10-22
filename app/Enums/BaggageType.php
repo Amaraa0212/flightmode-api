@@ -6,6 +6,8 @@ enum BaggageType: string
 {
     case Passenger = 'passenger';
     case Crew = 'crew';
+    /** freight / mail tagged at the counter — kept out of the passengers' bags */
+    case Cargo = 'cargo';
 
     /** @return list<string> */
     public static function values(): array

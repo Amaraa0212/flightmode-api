@@ -32,6 +32,18 @@ class CheckinController extends Controller
         return $this->success('Checked in.', new SegmentResource($segment));
     }
 
+    /** Hold a seat for a booked passenger without the check-in (seat_number null releases it). */
+    public function holdSeat(Request $request, PassengerSegment $segment): JsonResponse
+    {
+        $this->access->ensureFlight($request->user(), $segment->flight);
+        $this->checkin->assertCounterOpen($segment->flight);
+        $data = $request->validate(['seat_number' => ['present', 'nullable', 'string', 'max:4']]);
+
+        $segment = $this->checkin->holdSeat($segment, $data['seat_number']);
+
+        return $this->success($segment->seat_number ? "Seat {$segment->seat_number} held." : 'Seat released.', new SegmentResource($segment));
+    }
+
     public function destroy(Request $request, PassengerSegment $segment): JsonResponse
     {
         $this->access->ensureFlight($request->user(), $segment->flight);

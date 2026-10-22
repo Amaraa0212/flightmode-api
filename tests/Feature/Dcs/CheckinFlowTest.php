@@ -72,6 +72,38 @@ class CheckinFlowTest extends TestCase
         $this->assertSame(SegmentStatus::Booked, $segment->fresh()->status);
     }
 
+    public function test_a_seat_is_held_without_check_in_and_the_check_in_takes_it(): void
+    {
+        $segment = $this->book();
+        $other = $this->book();
+        $this->actingAsRole('station-agent');
+        $this->postJson("/api/v1/dcs/flights/{$this->flight->id}/open")->assertOk();
+
+        $this->putJson("/api/v1/dcs/segments/{$segment->id}/seat", ['seat_number' => '7c'])
+            ->assertOk()->assertJsonPath('data.seat_number', '7C')->assertJsonPath('data.status', 'booked');
+        $this->assertSame(SegmentStatus::Booked, $segment->fresh()->status);
+
+        // the held seat is taken for everybody else, and shows on the seat map with the passenger
+        $this->putJson("/api/v1/dcs/segments/{$other->id}/seat", ['seat_number' => '7C'])
+            ->assertStatus(422)->assertJsonPath('code', 'seat_not_available');
+        $seat = collect($this->getJson("/api/v1/dcs/flights/{$this->flight->id}/seat-map")->json('data.seats'))->firstWhere('seat_number', '7C');
+        $this->assertSame('occupied', $seat['state']);
+
+        // a new click moves the hold; Enter (check-in without a seat) keeps the held one
+        $this->putJson("/api/v1/dcs/segments/{$segment->id}/seat", ['seat_number' => '8D'])->assertOk();
+        $this->postJson("/api/v1/dcs/segments/{$segment->id}/check-in")->assertOk()
+            ->assertJsonPath('data.seat_number', '8D')->assertJsonPath('data.status', 'checked_in');
+
+        // checked-in passengers change seat through the check-in, not the hold
+        $this->putJson("/api/v1/dcs/segments/{$segment->id}/seat", ['seat_number' => '9A'])
+            ->assertStatus(422)->assertJsonPath('code', 'segment_not_booked');
+
+        $this->putJson("/api/v1/dcs/segments/{$other->id}/seat", ['seat_number' => '9A'])->assertOk();
+        $this->putJson("/api/v1/dcs/segments/{$other->id}/seat", ['seat_number' => null])->assertOk()
+            ->assertJsonPath('data.seat_number', null);
+        $this->assertDatabaseHas('activity_logs', ['event' => 'passenger.seat_reserved']);
+    }
+
     public function test_baggage_tags_boarding_pass_and_gate_boarding(): void
     {
         $segment = $this->book(['first_name' => 'Sara', 'last_name' => 'Bold']);

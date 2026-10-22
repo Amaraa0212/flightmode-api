@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Dcs;
 
+use App\Enums\BaggageType;
 use App\Enums\Gender;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\BaggageRuleResource;
@@ -45,11 +46,13 @@ class BaggageController extends Controller
     {
         $this->access->ensureFlight($request->user(), $segment->flight);
 
-        $rules = $segment->flight->baggageRules()->where('is_active', true)->get()
+        // charter: every bag is free — no rule to choose (legacy DCS)
+        $rules = $segment->flight->isCharter() ? collect() : $segment->flight->baggageRules()->where('is_active', true)->get()
             ->filter(fn (BaggageRule $r) => $r->cabin_class === null || $r->cabin_class === $segment->cabin_class->value || $r->isSsr(BaggageRule::SSR_FREE))
             ->values();
 
         return response()->json(['data' => [
+            'is_charter' => $segment->flight->isCharter(),
             'rules' => BaggageRuleResource::collection($rules)->resolve(),
             'prepaid_pieces' => (int) $segment->prepaidBaggage()->sum('pieces'),
             'excess_price_per_kg' => $segment->flight->excess_baggage_price_per_kg,
@@ -62,7 +65,7 @@ class BaggageController extends Controller
     {
         $this->access->ensureFlight($request->user(), $segment->flight);
         $data = $request->validate([
-            'baggage_rule_id' => ['required', 'integer', Rule::exists('baggage_rules', 'id')->where('airline_id', $segment->flight->airline_id)],
+            'baggage_rule_id' => [$segment->flight->isCharter() ? 'nullable' : 'required', 'integer', Rule::exists('baggage_rules', 'id')->where('airline_id', $segment->flight->airline_id)],
             'excess_baggage_rule_id' => ['nullable', 'integer', Rule::exists('baggage_rules', 'id')->where('airline_id', $segment->flight->airline_id)],
             'pieces' => ['required', 'integer', 'min:1', 'max:20'],
             'weight_kg' => ['required', 'numeric', 'min:0.1', 'max:999'],
@@ -79,11 +82,17 @@ class BaggageController extends Controller
     public function quote(Request $request, PassengerSegment $segment): JsonResponse
     {
         $this->access->ensureFlight($request->user(), $segment->flight);
+        $charter = $segment->flight->isCharter();
         $data = $request->validate([
-            'baggage_rule_id' => ['required', 'integer', Rule::exists('baggage_rules', 'id')->where('airline_id', $segment->flight->airline_id)],
+            'baggage_rule_id' => [$charter ? 'nullable' : 'required', 'integer', Rule::exists('baggage_rules', 'id')->where('airline_id', $segment->flight->airline_id)],
             'pieces' => ['required', 'integer', 'min:1', 'max:20'],
             'weight_kg' => ['required', 'numeric', 'min:0', 'max:999'],
         ]);
+
+        if ($charter) {
+            return response()->json(['data' => ['free_allowance_kg' => (float) $data['weight_kg'], 'excess_kg' => 0, 'excess_price' => 0,
+                'price' => 0, 'excess_price_per_kg' => 0, 'remaining_allowance_kg' => null, 'currency' => $segment->flight->airline->currency]]);
+        }
 
         $rule = BaggageRule::query()->findOrFail($data['baggage_rule_id']);
         // same piece check as accepting the bag, so the counter sees the problem before tagging
@@ -105,6 +114,18 @@ class BaggageController extends Controller
         ]);
 
         return $this->created('Crew baggage accepted.', new CheckedBaggageResource($this->baggage->acceptCrew($flight, $data)));
+    }
+
+    public function storeCargo(Request $request, Flight $flight): JsonResponse
+    {
+        $this->access->ensureFlight($request->user(), $flight);
+        $data = $request->validate([
+            'pieces' => ['nullable', 'integer', 'min:1', 'max:50'],
+            'weight_kg' => ['required', 'numeric', 'min:0.1', 'max:9999'],
+            'description' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        return $this->created('Cargo accepted.', new CheckedBaggageResource($this->baggage->acceptCargo($flight, $data)));
     }
 
     public function destroy(Request $request, CheckedBaggage $checkedBaggage): JsonResponse
@@ -138,9 +159,12 @@ class BaggageController extends Controller
             'date' => $flight->departureAt()->copy()->timezone($flight->origin->timezone)->format('dM'),
             'origin' => $flight->origin->iata_code,
             'destination' => ['code' => $flight->destination->iata_code, 'city' => $flight->destination->city, 'name' => $flight->destination->name],
-            'passenger' => $passenger ? $passenger->last_name.'/'.$passenger->first_name : ($baggage->crew_name ? 'CREW '.$baggage->crew_name : 'CREW'),
+            'passenger' => $passenger ? $passenger->last_name.'/'.$passenger->first_name
+                : ($baggage->type === BaggageType::Cargo ? 'CARGO' : ($baggage->crew_name ? 'CREW '.$baggage->crew_name : 'CREW')),
             'passenger_title' => $passenger ? ($passenger->gender === Gender::Female ? 'MRS' : 'MR') : null,
-            'is_crew' => $baggage->passenger_segment_id === null,
+            'is_crew' => $baggage->type === BaggageType::Crew,
+            'is_cargo' => $baggage->type === BaggageType::Cargo,
+            'description' => $baggage->type === BaggageType::Cargo ? $baggage->description : null,
             'pnr' => $passenger?->booking?->pnr,
             'piece' => $baggage->tags()->where('sequence', '<=', $tag->sequence)->count().'/'.$baggage->pieces,
             'weight_kg' => $baggage->weight_kg,

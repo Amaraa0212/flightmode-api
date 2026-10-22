@@ -192,6 +192,7 @@ Broadcasting (Laravel Reverb): `POST /api/broadcasting/auth` — Sanctum Bearer,
 | PUT | `/api/v1/admin/flights/{flight}/estimated-departure` | flights.operate | FlightOperationController@setEstimatedDeparture |
 | GET | `/api/v1/admin/flights/{flight}/fares` | flights.view | FareController@forFlight |
 | PUT | `/api/v1/admin/flights/{flight}/gate` | flights.operate | FlightOperationController@setGate |
+| PUT | `/api/v1/admin/flights/{flight}/products` | products.manage | FlightController@updateProducts |
 | PUT | `/api/v1/admin/flights/{flight}/gate-agents` | flights.operate | FlightOperationController@setGateAgents |
 | GET | `/api/v1/admin/flights/{flight}/gate-agents/candidates` | flights.operate | FlightOperationController@gateAgentCandidates |
 | PUT | `/api/v1/admin/flights/{flight}/online-checkin` | flights.operate | FlightOperationController@setOnlineCheckin |
@@ -276,6 +277,7 @@ Broadcasting (Laravel Reverb): `POST /api/broadcasting/auth` — Sanctum Bearer,
 | GET | `/api/v1/dcs/flights/{flight}/baggage` | dcs.access | BaggageController@index |
 | POST | `/api/v1/dcs/flights/{flight}/close` | dcs.checkin | FlightController@close |
 | POST | `/api/v1/dcs/flights/{flight}/crew-baggage` | dcs.checkin | BaggageController@storeCrew |
+| POST | `/api/v1/dcs/flights/{flight}/cargo` | dcs.checkin | BaggageController@storeCargo |
 | GET | `/api/v1/dcs/flights/{flight}/documents/manifest` | dcs.access | FlightDocumentController@manifest |
 | POST | `/api/v1/dcs/flights/{flight}/groups` | dcs.checkin | GroupController@store |
 | POST | `/api/v1/dcs/flights/{flight}/open` | dcs.checkin | FlightController@open |
@@ -293,6 +295,7 @@ Broadcasting (Laravel Reverb): `POST /api/broadcasting/auth` — Sanctum Bearer,
 | GET | `/api/v1/dcs/segments/{segment}/boarding-pass` | dcs.access | CheckinController@boardingPass |
 | DELETE | `/api/v1/dcs/segments/{segment}/check-in` | dcs.checkin | CheckinController@destroy |
 | POST | `/api/v1/dcs/segments/{segment}/check-in` | dcs.checkin | CheckinController@store |
+| PUT | `/api/v1/dcs/segments/{segment}/seat` | dcs.checkin | CheckinController@holdSeat |
 | DELETE | `/api/v1/dcs/segments/{segment}/group` | dcs.checkin | GroupController@destroy |
 
 ## Gate (boarding)

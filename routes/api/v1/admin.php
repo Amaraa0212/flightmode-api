@@ -65,6 +65,7 @@ Route::middleware('can:products.manage')->group(function () {
     Route::apiResource('seat-prices', Admin\SeatPriceController::class)->parameters(['seat-prices' => 'id']);
     Route::apiResource('service-templates', Admin\ServiceTemplateController::class)->parameters(['service-templates' => 'id']);
     Route::apiResource('airline-ssrs', Admin\AirlineSsrController::class)->except(['show']);
+    Route::put('flights/{flight}/products', [Admin\FlightController::class, 'updateProducts']);
 });
 
 // Flights

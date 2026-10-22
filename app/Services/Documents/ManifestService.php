@@ -2,6 +2,7 @@
 
 namespace App\Services\Documents;
 
+use App\Enums\BaggageType;
 use App\Enums\PassengerType;
 use App\Enums\SegmentStatus;
 use App\Models\AircraftSeat;
@@ -99,7 +100,8 @@ class ManifestService
                 'id' => $b->id,
                 'type' => $b->type->value,
                 'segment_id' => $b->passenger_segment_id,
-                'passenger' => $b->segment ? $b->segment->passenger->last_name.'/'.$b->segment->passenger->first_name : 'CREW'.($b->crew_name ? ' '.$b->crew_name : ''),
+                'passenger' => $b->segment ? $b->segment->passenger->last_name.'/'.$b->segment->passenger->first_name
+                    : ($b->type === BaggageType::Cargo ? 'CARGO'.($b->description ? ' '.$b->description : '') : 'CREW'.($b->crew_name ? ' '.$b->crew_name : '')),
                 'seat_number' => $b->segment?->seat_number,
                 'cabin_class' => $b->segment?->cabin_class->value,
                 'checkin_group_id' => $b->checkin_group_id,

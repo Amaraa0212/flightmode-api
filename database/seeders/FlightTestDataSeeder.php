@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Enums\BookingSource;
 use App\Enums\CabinClass;
 use App\Enums\CheckinChannel;
+use App\Enums\FlightServiceType;
 use App\Enums\FlightStatus;
 use App\Enums\SegmentStatus;
 use App\Exceptions\BusinessRuleException;
@@ -37,13 +38,14 @@ use Illuminate\Support\Str;
  *    ADT / CHD / INF counts, a check-in group with bags (cannot be ungrouped), paid and waived excess baggage,
  *    a "Piece + kg" baggage rule
  *  - MR902 UBN→ULG tomorrow, scheduled, booked only
+ *  - MR903 UBN→ULG charter, check-in open: every bag free (no rule), one cargo shipment
  *  - MR950 UBN→ULG series (Mon / Wed / Fri, 3 weeks): one flight moved by hand (Series · edited), one cancelled
  *
  * Re-running replaces these flights and the series; nothing else is touched.
  */
 class FlightTestDataSeeder extends Seeder
 {
-    private const FLIGHTS = ['MR901', 'MR902'];
+    private const FLIGHTS = ['MR901', 'MR902', 'MR903'];
 
     private const SERIES = 'MR950';
 
@@ -85,10 +87,15 @@ class FlightTestDataSeeder extends Seeder
             $this->book($ulg, $admin, 35);
             $ulg->update(['status' => FlightStatus::Scheduled]);
 
+            $charter = $this->flight($hunnu, $e190, $airports['UBN'], $airports['ULG'], 'MR903', now()->addHours(4)->setSecond(0), 180, '03');
+            $charter->update(['service_type' => FlightServiceType::Charter]);
+            $this->book($charter, $admin, 40);
+            $this->charterCounter($charter);
+
             $this->series($hunnu, $e190, $airports['UBN'], $airports['ULG']);
         });
 
-        $this->command?->info('Test flights ready: MR901 (check-in open, 767), MR902 (tomorrow), series MR950.');
+        $this->command?->info('Test flights ready: MR901 (check-in open, 767), MR902 (tomorrow), MR903 (charter), series MR950.');
     }
 
     /** Previous run's flights, bookings and series. */
@@ -252,6 +259,25 @@ class FlightTestDataSeeder extends Seeder
             };
             $baggage->accept($segment, ['baggage_rule_id' => $rule->id, 'pieces' => 1] + $extra);
         }
+    }
+
+    /** Charter: half the passengers checked in with free bags of any weight / count, and a cargo shipment. */
+    private function charterCounter(Flight $flight): void
+    {
+        $checkin = app(CheckinService::class);
+        $baggage = app(BaggageService::class);
+        $segments = PassengerSegment::query()->where('flight_id', $flight->id)->where('status', SegmentStatus::Booked)
+            ->whereHas('passenger', fn ($q) => $q->whereNull('infant_of_passenger_id'))->get()->shuffle();
+
+        foreach ($segments->take((int) round($segments->count() / 2)) as $segment) {
+            $segment = $checkin->checkIn($segment, null, CheckinChannel::Dcs);
+            if (mt_rand(1, 3) > 1) {
+                $pieces = mt_rand(1, 3);
+                $baggage->accept($segment, ['pieces' => $pieces, 'weight_kg' => $pieces * mt_rand(15, 32)]);
+            }
+        }
+
+        $baggage->acceptCargo($flight, ['pieces' => 3, 'weight_kg' => 85, 'description' => 'Mail']);
     }
 
     /** Mon / Wed / Fri for three weeks; one flight moved by hand, one cancelled. */
