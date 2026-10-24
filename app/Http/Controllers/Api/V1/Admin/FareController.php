@@ -9,6 +9,7 @@ use App\Models\Fare;
 use App\Models\FareClass;
 use App\Models\Flight;
 use App\Services\Fare\FareService;
+use App\Services\Inventory\InventoryService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
@@ -105,19 +106,28 @@ class FareController extends AirlineCrudController
     }
 
     /** Fares that can be sold on a flight: its route (and the reverse route for round-trip fares) valid on its date. */
-    public function forFlight(Request $request, Flight $flight): AnonymousResourceCollection
+    /** Fares valid on the flight; on an inventory-controlled flight each carries `available` seats of its class. */
+    public function forFlight(Request $request, Flight $flight, InventoryService $inventory): AnonymousResourceCollection
     {
         $this->access->ensureFlight($request->user(), $flight);
         $date = $flight->scheduled_departure_at->toDateString();
 
-        return FareResource::collection(
-            Fare::query()->with($this->with())
-                ->where('airline_id', $flight->airline_id)
-                ->where('is_active', true)
-                ->forRoute($flight->origin_airport_id, $flight->destination_airport_id)
-                ->whereDate('valid_from', '<=', $date)->whereDate('valid_to', '>=', $date)
-                ->orderBy('cabin_class')->orderBy('base_amount')
-                ->get()
-        );
+        $fares = Fare::query()->with($this->with())
+            ->where('airline_id', $flight->airline_id)
+            ->where('is_active', true)
+            ->forRoute($flight->origin_airport_id, $flight->destination_airport_id)
+            ->whereDate('valid_from', '<=', $date)->whereDate('valid_to', '>=', $date)
+            ->orderBy('cabin_class')->orderBy('base_amount')
+            ->get();
+
+        $availability = $inventory->availability($flight);
+        if ($availability['is_controlled']) {
+            $rbds = collect($availability['rbds'])->keyBy('code');
+            $cabins = collect($availability['cabins'])->keyBy('cabin_class');
+            $fares->each(fn (Fare $fare) => $fare->setAttribute('available',
+                $rbds->get($fare->fare_class)['available'] ?? $cabins->get($fare->cabin_class->value)['available'] ?? 0));
+        }
+
+        return FareResource::collection($fares);
     }
 }

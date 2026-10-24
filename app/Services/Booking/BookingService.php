@@ -21,6 +21,7 @@ use App\Models\SsrCode;
 use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\Allocation\AllocationService;
+use App\Services\Inventory\InventoryService;
 use App\Support\PassengerAge;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -44,6 +45,7 @@ class BookingService
         private readonly PnrGenerator $pnr,
         private readonly TicketNumberGenerator $tickets,
         private readonly ActivityLogger $logger,
+        private readonly InventoryService $inventory,
     ) {}
 
     /**
@@ -272,6 +274,11 @@ class BookingService
                 throw BusinessRuleException::make('already_on_flight', 'The passenger is already on this flight.');
             }
 
+            if (! $segment->agency_allocation_fare_id && ! $segment->passenger->booking?->agency_allocation_id
+                && $segment->status !== SegmentStatus::Waitlisted) {
+                $this->inventory->assertCanSell($newFlight, $segment->cabin_class, $segment->fare_class);
+            }
+
             $oldFlightId = $segment->flight_id;
             foreach (array_filter([$segment->passenger, $segment->passenger->infant]) as $person) {
                 PassengerSegment::query()->where('passenger_id', $person->id)->where('flight_id', $oldFlightId)
@@ -320,6 +327,11 @@ class BookingService
             }
         }
 
+        $directFare = isset($row['fare_id']) ? Fare::query()->with('fareClass')->findOrFail($row['fare_id']) : null;
+        if (! $allocation && ! $goShow) {
+            $waitlisted = $this->assertInventory($flights, $cabin, $directFare) || $waitlisted;
+        }
+
         if ($infantData) {
             foreach ($flights as $flight) {
                 $this->assertInfantCapacity($flight);
@@ -327,7 +339,6 @@ class BookingService
         }
 
         $passenger = $booking->passengers()->create($attributes + ['type' => $type]);
-        $directFare = isset($row['fare_id']) ? Fare::query()->findOrFail($row['fare_id']) : null;
         $this->createSegments($passenger, $flights, $cabin, $type, $bucket, $returnBucket, $returnAllocation, $directFare, $row, $waitlisted, $goShow);
 
         if ($infantData) {
@@ -476,6 +487,29 @@ class BookingService
         }
     }
 
+    /**
+     * RBD limits of a direct (non-allocation) sale. A sold-out class waitlists the passenger when its fare class allows it.
+     *
+     * @param  Collection<int, Flight>  $flights
+     * @return bool whether the passenger must be waitlisted
+     */
+    private function assertInventory(Collection $flights, CabinClass $cabin, ?Fare $fare): bool
+    {
+        foreach ($flights as $flight) {
+            try {
+                $this->inventory->assertCanSell($flight, $cabin, $fare?->fare_class);
+            } catch (BusinessRuleException $e) {
+                if (! $fare?->fareClass?->waitlist) {
+                    throw $e;
+                }
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function assertInfantCapacity(Flight $flight): void
     {
         $max = $flight->aircraft?->max_infants;
@@ -514,6 +548,15 @@ class BookingService
 
         $directFare = ! $allocation && isset($data['fare_id']) ? Fare::query()->find($data['fare_id']) : null;
         $type = $passenger->type ?? PassengerType::Adult;
+
+        if (! $allocation) {
+            $fareClass = $directFare?->fare_class ?? $first->fare_class;
+            if ($cabin !== $first->cabin_class || $fareClass !== $first->fare_class) {
+                foreach ($segments->where('status', '!=', SegmentStatus::Waitlisted) as $segment) {
+                    $this->inventory->assertCanSell($segment->flight, $cabin, $fareClass, 1, $passenger->id);
+                }
+            }
+        }
 
         foreach ($segments->values() as $index => $segment) {
             $price = $index === 0 ? ($bucket?->priceFor($type) ?? $directFare?->priceFor($type)) : null;

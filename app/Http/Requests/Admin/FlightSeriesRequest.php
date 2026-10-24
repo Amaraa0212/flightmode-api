@@ -13,6 +13,7 @@ class FlightSeriesRequest extends FormRequest
         return [
             'airline_id' => ['nullable', 'integer', 'exists:airlines,id'],
             'aircraft_id' => ['nullable', 'integer', 'exists:aircraft,id'],
+            'inventory_template_id' => ['nullable', 'integer', 'exists:inventory_templates,id'],
             'flight_number' => ['required', 'string', 'max:10'],
             'service_type' => ['sometimes', Rule::enum(FlightServiceType::class)],
             'origin_airport_id' => ['required', 'integer', 'exists:airports,id'],

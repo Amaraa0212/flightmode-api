@@ -32,6 +32,11 @@ class FlightSeries extends Model
         return $this->belongsTo(Aircraft::class);
     }
 
+    public function inventoryTemplate(): BelongsTo
+    {
+        return $this->belongsTo(InventoryTemplate::class);
+    }
+
     public function origin(): BelongsTo
     {
         return $this->belongsTo(Airport::class, 'origin_airport_id');

@@ -6,6 +6,7 @@ use App\Enums\CabinClass;
 use App\Enums\SegmentStatus;
 use App\Exceptions\BusinessRuleException;
 use App\Models\AgencyAllocation;
+use App\Models\AgencyAllocationCabin;
 use App\Models\AgencyAllocationFare;
 use App\Models\Flight;
 use App\Models\PassengerSegment;
@@ -48,6 +49,20 @@ class AllocationService
                 if ($data['seats'] > $free) {
                     throw BusinessRuleException::make('not_enough_seats',
                         "Flight {$flight->flight_number} has only {$free} seat(s) left for allocations.");
+                }
+            }
+
+            foreach (array_filter([$outbound, $return]) as $flight) {
+                foreach ($data['cabins'] as $cabin => $seats) {
+                    if ($seats <= 0) {
+                        continue;
+                    }
+                    $cabinClass = CabinClass::from($cabin);
+                    $free = $this->cabinSeatsLeftForAllocations($flight, $cabinClass, $allocation);
+                    if ($seats > $free) {
+                        throw BusinessRuleException::make('not_enough_cabin_seats',
+                            "Flight {$flight->flight_number}: cabin {$cabinClass->value} has only {$free} seat(s) left for allocations.");
+                    }
                 }
             }
 
@@ -118,6 +133,39 @@ class AllocationService
             ->count();
 
         return max(0, $total - (int) $allocated - $direct);
+    }
+
+    /**
+     * Seats of one cabin not yet given to allocations or sold directly by the airline. The cabin size is the
+     * flight's seat inventory (seats + oversell - curtail) when it has one, otherwise the aircraft cabin.
+     */
+    public function cabinSeatsLeftForAllocations(Flight $flight, CabinClass $cabin, ?AgencyAllocation $except = null): int
+    {
+        return max(0, $this->cabinAllocationRoom($flight, $cabin, $except));
+    }
+
+    /** Same as cabinSeatsLeftForAllocations, but negative when the cabin is already over-allocated. */
+    public function cabinAllocationRoom(Flight $flight, CabinClass $cabin, ?AgencyAllocation $except = null): int
+    {
+        $inventory = $flight->cabinInventory()->get();
+        $size = $inventory->isNotEmpty()
+            ? (int) $inventory->first(fn ($c) => $c->cabin_class === $cabin)?->capacity()
+            : (int) $flight->aircraft?->cabins()->where('cabin_class', $cabin->value)->value('seat_count');
+
+        $allocated = AgencyAllocationCabin::query()
+            ->where('cabin_class', $cabin->value)
+            ->whereHas('allocation', fn ($q) => $q
+                ->where(fn ($x) => $x->where('outbound_flight_id', $flight->id)->orWhere('return_flight_id', $flight->id))
+                ->when($except?->exists, fn ($x) => $x->whereKeyNot($except->id)))
+            ->sum('seats');
+
+        $direct = $this->activeAdultSegments()
+            ->where('flight_id', $flight->id)
+            ->where('cabin_class', $cabin->value)
+            ->whereHas('passenger.booking', fn ($q) => $q->whereNull('agency_allocation_id'))
+            ->count();
+
+        return $size - (int) $allocated - $direct;
     }
 
     public function usedSeats(AgencyAllocation $allocation, ?CabinClass $cabin = null, ?int $exceptPassengerId = null): int

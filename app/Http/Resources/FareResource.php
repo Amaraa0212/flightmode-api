@@ -33,6 +33,8 @@ class FareResource extends JsonResource
             'currency' => $this->currency,
             'conditions' => $this->conditions,
             'is_active' => $this->is_active,
+            // only on GET flights/{flight}/fares of an inventory-controlled flight
+            'available' => $this->when(array_key_exists('available', $this->resource->getAttributes()), fn () => $this->resource->getAttribute('available')),
         ];
     }
 }

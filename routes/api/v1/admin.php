@@ -59,6 +59,25 @@ Route::middleware('can:fares.manage')->group(function () {
     Route::apiResource('fare-taxes', Admin\FareTaxController::class)->parameters(['fare-taxes' => 'id']);
     Route::apiResource('rbd-modifications', Admin\RbdModificationController::class)->parameters(['rbd-modifications' => 'id']);
 });
+// Seat inventory per flight (cabin seats + nested RBD limits) and its templates
+Route::middleware('can:inventory.view')->group(function () {
+    Route::get('inventory/flights', [Admin\InventoryController::class, 'flights']);
+    Route::get('flights/{flight}/inventory', [Admin\InventoryController::class, 'show']);
+    Route::get('inventory-templates', [Admin\InventoryTemplateController::class, 'index']);
+    Route::get('inventory-templates/{id}', [Admin\InventoryTemplateController::class, 'show']);
+});
+Route::middleware('can:inventory.manage')->group(function () {
+    Route::put('flights/{flight}/inventory/cabins', [Admin\InventoryController::class, 'saveCabins']);
+    Route::put('flights/{flight}/inventory/rbds', [Admin\InventoryController::class, 'saveRbds']);
+    Route::patch('flights/{flight}/inventory/rbds/{rbd}', [Admin\InventoryController::class, 'updateRbd']);
+    Route::delete('flights/{flight}/inventory/rbds/{rbd}', [Admin\InventoryController::class, 'destroyRbd']);
+    Route::post('flights/{flight}/inventory/initialize', [Admin\InventoryController::class, 'initialize']);
+    Route::post('flights/{flight}/inventory/roll-forward', [Admin\InventoryController::class, 'rollForward']);
+    Route::delete('flights/{flight}/inventory', [Admin\InventoryController::class, 'reset']);
+    Route::post('inventory/apply-template', [Admin\InventoryController::class, 'applyTemplate']);
+    Route::post('inventory-templates/from-flight/{flight}', [Admin\InventoryTemplateController::class, 'fromFlight']);
+    Route::apiResource('inventory-templates', Admin\InventoryTemplateController::class)->except(['index', 'show'])->parameters(['inventory-templates' => 'id']);
+});
 Route::middleware('can:products.manage')->group(function () {
     Route::apiResource('baggage-rules', Admin\BaggageRuleController::class)->parameters(['baggage-rules' => 'id']);
     Route::apiResource('baggage-policies', Admin\BaggagePolicyController::class)->parameters(['baggage-policies' => 'id']);
