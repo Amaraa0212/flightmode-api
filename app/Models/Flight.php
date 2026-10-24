@@ -108,6 +108,16 @@ class Flight extends Model
         return $this->hasMany(AgencyAllocation::class, 'return_flight_id');
     }
 
+    public function cabinInventory(): HasMany
+    {
+        return $this->hasMany(FlightCabinInventory::class);
+    }
+
+    public function rbdInventory(): HasMany
+    {
+        return $this->hasMany(FlightRbdInventory::class);
+    }
+
     /** Segments that hold a place on the aircraft (not cancelled / waitlisted). */
     public function activeSegments(): HasMany
     {

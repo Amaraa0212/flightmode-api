@@ -9,6 +9,7 @@ use App\Models\Airport;
 use App\Models\Flight;
 use App\Models\FlightSeries;
 use App\Services\ActivityLogger;
+use App\Services\Inventory\InventoryService;
 use Carbon\CarbonPeriod;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -20,7 +21,10 @@ use Illuminate\Support\Facades\DB;
  */
 class FlightSeriesService
 {
-    public function __construct(private readonly ActivityLogger $logger) {}
+    public function __construct(
+        private readonly ActivityLogger $logger,
+        private readonly InventoryService $inventory,
+    ) {}
 
     /**
      * @param  array<string, mixed>  $data
@@ -99,7 +103,8 @@ class FlightSeriesService
 
             $flight = $existing->get($date);
             if (! $flight) {
-                $series->flights()->create($attributes + ['status' => FlightStatus::Scheduled, 'created_by' => auth()->id()]);
+                $flight = $series->flights()->create($attributes + ['status' => FlightStatus::Scheduled, 'created_by' => auth()->id()]);
+                $this->applyInventoryTemplate($series, $flight);
                 $created++;
             } elseif ($flight->status === FlightStatus::Scheduled && ! $flight->is_series_override) {
                 $flight->fill($attributes);
@@ -124,6 +129,20 @@ class FlightSeriesService
         }
 
         return compact('created', 'updated', 'removed', 'kept');
+    }
+
+    /** A template that does not fit the flight (e.g. another aircraft) leaves it without inventory. */
+    private function applyInventoryTemplate(FlightSeries $series, Flight $flight): void
+    {
+        if (! $series->inventory_template_id || ! $series->inventoryTemplate) {
+            return;
+        }
+
+        try {
+            $this->inventory->initialize($flight, $series->inventoryTemplate);
+        } catch (BusinessRuleException) {
+            // the flight keeps selling without RBD limits; set it on the seat allocation screen
+        }
     }
 
     /**

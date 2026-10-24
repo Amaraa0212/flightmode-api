@@ -25,6 +25,7 @@
 | booking | `bookings`, `passengers`, `checkin_groups`, `passenger_segments`, `passenger_segment_ssr`, `prepaid_baggage`, `baggage_items` |
 | payment | `orders`, `order_items` |
 | fare_setting | `rbds`, `fare_classes`, `fare_discounts`, `tax_codes`, `fare_taxes`, `rbd_modifications` (+ `fares.fare_class_id`) |
+| flight_inventory | `flight_cabin_inventory`, `flight_rbd_inventory`, `inventory_templates`, `inventory_template_cabins`, `inventory_template_rbds` (+ `flight_series.inventory_template_id`) |
 | misc | `announcements`, `announcement_dismissals`, `charter_requests`, `airline_charter_request`, `activity_logs` |
 
 ## Гол бүтэц
@@ -84,4 +85,5 @@ bookings (PNR) ── passengers ── passenger_segments (1 зорчигч × 
 - `passenger_segments` дээр `unique(flight_id, seat_number)`. Segment цуцлах/устгах, offload хийхэд `seat_number`-ийг `null` болгоно (soft delete хийсэн мөр ч суудлыг түгжинэ).
 - Fare class-тай fare (`fares.fare_class_id`): үнэ = base × (100 − `fare_discounts.percentage`)%, татвар = гарах нисэх буудлын `OUT` + очих буудлын `IN` default мөрүүд (тухайн fare дээр `fare_id`-тай мөр байвал ижил tax code-ийн default-ийг орлоно). `fares`-ийн хуучин багана (`cabin_class`, `fare_class`, `trip_type`, `tax_amount`, CHD/INF %)-уудыг `FareService` түр синк хийж байна.
 - Хүүхэд/нярай үнэ (fare class-гүй хуучин fare): `fares.child_discount_percent`, `infant_discount_percent`. Зорчигчийн төрлийг (`ADT/CHD/INF`) нислэгийн өдрийн насаар app талд тооцоолж хадгална.
+- Нислэгийн суудлын inventory (`InventoryService`): `flight_cabin_inventory` мөртэй нислэг л RBD хязгаартай зарагдана. `flight_rbd_inventory.seats` нь nested хязгаар (тухайн RBD + `rbds.parent_id`-аар доор нь байгаа бүх RBD нийлээд). Sold-ыг хадгалахгүй, `passenger_segments.fare_class`-аас тоолно. Агентлагийн блокийн зарагдаагүй суудал cabin-ий avail-аас хасагдана; агентлагийн захиалга RBD хязгаарт баригдахгүй ч sold-д орно.
 - Online check-in-ий email баталгаажуулах код cache-д хадгалагдана (хүснэгтгүй).
