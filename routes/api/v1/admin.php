@@ -22,6 +22,7 @@ Route::middleware('can:users.manage')->group(function () {
     Route::apiResource('users', Admin\UserController::class);
     Route::post('users/{user}/api-token', [Admin\UserController::class, 'issueApiToken']);
     Route::delete('users/{user}/api-token', [Admin\UserController::class, 'revokeApiToken']);
+    Route::delete('users/{user}/two-factor', [Admin\UserController::class, 'resetTwoFactor']);
 });
 Route::middleware('can:roles.manage')->group(function () {
     Route::get('permissions', [Admin\RoleController::class, 'permissions']);
@@ -115,6 +116,13 @@ Route::middleware('can:seat_blocks.manage')->group(function () {
     Route::get('flights/{flight}/seat-map', [Admin\SeatBlockController::class, 'seatMap']);
     Route::post('flights/{flight}/seat-blocks', [Admin\SeatBlockController::class, 'block']);
     Route::delete('flights/{flight}/seat-blocks', [Admin\SeatBlockController::class, 'unblock']);
+});
+
+// Prepaid agency accounts
+Route::middleware('can:agency_accounts.manage')->group(function () {
+    Route::get('agency-accounts', [Admin\AgencyAccountController::class, 'index']);
+    Route::post('agency-accounts/top-up', [Admin\AgencyAccountController::class, 'topUp']);
+    Route::get('agency-accounts/{account}/transactions', [Admin\AgencyAccountController::class, 'transactions']);
 });
 
 // Agency allocations

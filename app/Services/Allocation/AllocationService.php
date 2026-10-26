@@ -3,11 +3,13 @@
 namespace App\Services\Allocation;
 
 use App\Enums\CabinClass;
+use App\Enums\PassengerType;
 use App\Enums\SegmentStatus;
 use App\Exceptions\BusinessRuleException;
 use App\Models\AgencyAllocation;
 use App\Models\AgencyAllocationCabin;
 use App\Models\AgencyAllocationFare;
+use App\Models\AgencyHold;
 use App\Models\Flight;
 use App\Models\PassengerSegment;
 use App\Services\Integrations\Chinggis\ChinggisSync;
@@ -200,25 +202,30 @@ class AllocationService
     {
         $allocation->loadMissing(['cabins', 'fares.fare', 'outboundFlight']);
         $used = $this->usedSeats($allocation);
+        $held = $this->heldSeats($allocation);
 
         return [
             'seats' => $allocation->seats,
             'used' => $used,
-            'remaining' => max(0, $allocation->seats - $used),
+            'held' => $held,
+            'remaining' => max(0, $allocation->seats - $used - $held),
             'is_open_for_names' => $allocation->isOpenForNames(),
             'names_deadline_at' => $allocation->namesDeadlineAt()->toIso8601String(),
             'cabins' => $allocation->cabins->map(function ($cabin) use ($allocation) {
                 $usedInCabin = $this->usedSeats($allocation, $cabin->cabin_class);
+                $heldInCabin = $this->heldSeats($allocation, $cabin->cabin_class);
 
                 return [
                     'cabin_class' => $cabin->cabin_class->value,
                     'seats' => $cabin->seats,
                     'used' => $usedInCabin,
-                    'remaining' => max(0, $cabin->seats - $usedInCabin),
+                    'held' => $heldInCabin,
+                    'remaining' => max(0, $cabin->seats - $usedInCabin - $heldInCabin),
                 ];
             })->values()->all(),
-            'fares' => $allocation->fares->map(function (AgencyAllocationFare $bucket) {
+            'fares' => $allocation->fares->map(function (AgencyAllocationFare $bucket) use ($allocation) {
                 $sold = $this->usedFareSeats($bucket);
+                $heldOnFare = $this->heldSeats($allocation, null, $bucket);
 
                 return [
                     'id' => $bucket->id,
@@ -227,27 +234,72 @@ class AllocationService
                     'cabin_class' => $bucket->cabin_class->value,
                     'seats' => $bucket->seats,
                     'sold' => $sold,
-                    'remaining' => $bucket->seats > 0 ? max(0, $bucket->seats - $sold) : null,
+                    'held' => $heldOnFare,
+                    'remaining' => $bucket->seats > 0 ? max(0, $bucket->seats - $sold - $heldOnFare) : null,
+                    'price' => $bucket->priceFor(PassengerType::Adult),
                 ];
             })->values()->all(),
         ];
     }
 
-    /** Throws when the cabin / fare bucket of an allocation cannot take one more passenger. */
-    public function assertCanTake(AgencyAllocation $allocation, CabinClass $cabin, ?AgencyAllocationFare $bucket, ?int $exceptPassengerId = null): void
+    /**
+     * Throws when the cabin / fare bucket of an allocation cannot take one more passenger.
+     * Seats kept by other agencies' holds count as taken; a passenger named on `$hold` uses that hold's seats.
+     */
+    public function assertCanTake(AgencyAllocation $allocation, CabinClass $cabin, ?AgencyAllocationFare $bucket, ?int $exceptPassengerId = null, ?AgencyHold $hold = null): void
     {
         $cabinSeats = (int) $allocation->cabins->firstWhere('cabin_class', $cabin)?->seats;
-        if ($this->usedSeats($allocation, $cabin, $exceptPassengerId) >= $cabinSeats) {
+        $heldInCabin = $this->heldSeats($allocation, $cabin, null, $hold?->id);
+        if ($this->usedSeats($allocation, $cabin, $exceptPassengerId) + $heldInCabin >= $cabinSeats) {
             throw BusinessRuleException::make('cabin_full', "Cabin {$cabin->value} of this allocation is full.");
         }
 
-        if ($this->usedSeats($allocation, null, $exceptPassengerId) >= $allocation->seats) {
+        if ($this->usedSeats($allocation, null, $exceptPassengerId) + $this->heldSeats($allocation, null, null, $hold?->id) >= $allocation->seats) {
             throw BusinessRuleException::make('allocation_full', 'This allocation is full.');
         }
 
-        if ($bucket && $bucket->seats > 0 && $this->usedFareSeats($bucket, $exceptPassengerId) >= $bucket->seats) {
+        if ($bucket && $bucket->seats > 0
+            && $this->usedFareSeats($bucket, $exceptPassengerId) + $this->heldSeats($allocation, null, $bucket, $hold?->id) >= $bucket->seats) {
             throw BusinessRuleException::make('fare_full', "Fare quota is full ({$bucket->seats} seat(s)).");
         }
+
+        if ($hold && $this->namedOnHold($hold, $exceptPassengerId) >= $hold->seats) {
+            throw BusinessRuleException::make('hold_full', "Every seat of this hold already has a name ({$hold->seats}).");
+        }
+    }
+
+    /**
+     * Seats kept by active holds that have no name yet. Holds only keep seats while the allocation takes names.
+     */
+    public function heldSeats(AgencyAllocation $allocation, ?CabinClass $cabin = null, ?AgencyAllocationFare $bucket = null, ?int $exceptHoldId = null): int
+    {
+        $allocation->loadMissing('outboundFlight');
+        if (! $allocation->isOpenForNames()) {
+            return 0;
+        }
+
+        return (int) AgencyHold::query()
+            ->where('agency_allocation_id', $allocation->id)
+            ->where('status', AgencyHold::ACTIVE)
+            ->when($cabin, fn ($q) => $q->where('cabin_class', $cabin->value))
+            ->when($bucket, fn ($q) => $q->where('agency_allocation_fare_id', $bucket->id))
+            ->when($exceptHoldId, fn ($q) => $q->whereKeyNot($exceptHoldId))
+            ->get()
+            ->sum(fn (AgencyHold $h) => max(0, $h->seats - $this->namedOnHold($h)));
+    }
+
+    /** Passengers (not infants, not cancelled) whose names were entered on the hold. */
+    public function namedOnHold(AgencyHold $hold, ?int $exceptPassengerId = null): int
+    {
+        $hold->loadMissing('allocation');
+
+        return PassengerSegment::query()
+            ->where('flight_id', $hold->allocation->outbound_flight_id)
+            ->whereNotIn('status', [SegmentStatus::Cancelled])
+            ->when($exceptPassengerId, fn ($q) => $q->where('passenger_id', '!=', $exceptPassengerId))
+            ->whereHas('passenger', fn ($q) => $q->whereNull('infant_of_passenger_id')
+                ->whereHas('booking', fn ($b) => $b->where('agency_hold_id', $hold->id)))
+            ->count();
     }
 
     private function activeAdultSegments()

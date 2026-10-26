@@ -10,6 +10,7 @@ enum ActivityChannel: string
     case Online = 'online';
     case Agency = 'agency';
     case AgencyApi = 'agency_api';
+    case Auth = 'auth';
 
     /** @return list<string> */
     public static function values(): array

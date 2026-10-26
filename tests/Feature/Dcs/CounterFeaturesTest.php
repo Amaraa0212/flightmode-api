@@ -219,7 +219,7 @@ class CounterFeaturesTest extends TestCase
 
         Event::assertDispatched(FlightUpdated::class, fn (FlightUpdated $e) => $e->flightId === $this->flight->id
             && $e->event === 'passenger.checked_in'
-            && $e->broadcastOn()->name === "private-dcs.flight.{$this->flight->id}"
+            && $e->broadcastOn()[0]->name === "private-dcs.flight.{$this->flight->id}"
             && $e->seat['segment_id'] === $segment->id && $e->seat['from'] === null && $e->seat['to'] !== null
             // the flight bar figures ride along — counters do not reload the flight for them
             && $e->broadcastWith()['statistics']['checked_in']['total'] === 1);

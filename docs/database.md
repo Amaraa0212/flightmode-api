@@ -26,6 +26,7 @@
 | payment | `orders`, `order_items` |
 | fare_setting | `rbds`, `fare_classes`, `fare_discounts`, `tax_codes`, `fare_taxes`, `rbd_modifications` (+ `fares.fare_class_id`) |
 | flight_inventory | `flight_cabin_inventory`, `flight_rbd_inventory`, `inventory_templates`, `inventory_template_cabins`, `inventory_template_rbds` (+ `flight_series.inventory_template_id`) |
+| agency_holds_accounts | `agency_holds` (+ `bookings.agency_hold_id`), `agency_accounts`, `agency_account_transactions` |
 | misc | `announcements`, `announcement_dismissals`, `charter_requests`, `airline_charter_request`, `activity_logs` |
 
 ## Гол бүтэц
@@ -86,4 +87,6 @@ bookings (PNR) ── passengers ── passenger_segments (1 зорчигч × 
 - Fare class-тай fare (`fares.fare_class_id`): үнэ = base × (100 − `fare_discounts.percentage`)%, татвар = гарах нисэх буудлын `OUT` + очих буудлын `IN` default мөрүүд (тухайн fare дээр `fare_id`-тай мөр байвал ижил tax code-ийн default-ийг орлоно). `fares`-ийн хуучин багана (`cabin_class`, `fare_class`, `trip_type`, `tax_amount`, CHD/INF %)-уудыг `FareService` түр синк хийж байна.
 - Хүүхэд/нярай үнэ (fare class-гүй хуучин fare): `fares.child_discount_percent`, `infant_discount_percent`. Зорчигчийн төрлийг (`ADT/CHD/INF`) нислэгийн өдрийн насаар app талд тооцоолж хадгална.
 - Нислэгийн суудлын inventory (`InventoryService`): `flight_cabin_inventory` мөртэй нислэг л RBD хязгаартай зарагдана. `flight_rbd_inventory.seats` нь nested хязгаар (тухайн RBD + `rbds.parent_id`-аар доор нь байгаа бүх RBD нийлээд). Sold-ыг хадгалахгүй, `passenger_segments.fare_class`-аас тоолно. Агентлагийн блокийн зарагдаагүй суудал cabin-ий avail-аас хасагдана; агентлагийн захиалга RBD хязгаарт баригдахгүй ч sold-д орно.
+- Agency hold (`agency_holds`): агентлагийн allocation-аас нэргүй түр барьсан суудал. Нэр оруулах хугацаа дуустал бусад борлуулалтад тооцогдоно (`AllocationService::heldSeats`). Нэрийг `POST /agency/bookings` + `hold_id`-аар оруулна.
+- Agency account (`agency_accounts`, агентлаг × airline): тийз бичигдэхэд (segment booked/checked-in…) fare + tax хасагдаж, цуцлах / waitlist болоход буцна (`AccountService::syncBooking`). Үлдэгдэл хүрэлцэхгүй бол захиалга бүтнээрээ буцна. Данс нээгээгүй агентлагт шалгалт хийхгүй.
 - Online check-in-ий email баталгаажуулах код cache-д хадгалагдана (хүснэгтгүй).

@@ -40,6 +40,11 @@ class Booking extends Model
         return $this->belongsTo(AgencyAllocation::class, 'agency_allocation_id');
     }
 
+    public function hold(): BelongsTo
+    {
+        return $this->belongsTo(AgencyHold::class, 'agency_hold_id');
+    }
+
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');

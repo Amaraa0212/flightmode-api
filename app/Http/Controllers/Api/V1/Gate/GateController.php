@@ -89,6 +89,12 @@ class GateController extends Controller
         if ($seatOnPass && $segment->seat_number && $seatOnPass !== $segment->seat_number) {
             throw BusinessRuleException::make('seat_mismatch', "The boarding pass seat ({$seatOnPass}) is not the current seat ({$segment->seat_number}); reprint it.");
         }
+        // A second scan of the same pass: someone else may be using it, so the agent must see it was already used
+        if ($segment->status === SegmentStatus::Boarded) {
+            $at = $segment->boarded_at?->copy()->timezone($flight->origin?->timezone ?? config('app.timezone'))->format('H:i');
+            throw BusinessRuleException::make('already_boarded', 'Already boarded'.($at ? " at {$at}" : '').': '
+                .$segment->passenger->last_name.' '.$segment->passenger->first_name.'.', ['boarded_at' => $segment->boarded_at?->toIso8601String()], 409);
+        }
 
         $segment = $this->checkin->board($segment);
 

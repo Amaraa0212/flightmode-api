@@ -23,6 +23,7 @@ enum PermissionKey: string
     case FlightOperations = 'flights.operate';
     case SeatBlocksManage = 'seat_blocks.manage';
     case AllocationsManage = 'allocations.manage';
+    case AgencyAccountsManage = 'agency_accounts.manage';
     case InventoryView = 'inventory.view';
     case InventoryManage = 'inventory.manage';
     case BookingsView = 'bookings.view';
@@ -60,6 +61,7 @@ enum PermissionKey: string
             self::FlightOperations => 'Flight manager (status, gate, ETD, gate agents)',
             self::SeatBlocksManage => 'Block seats',
             self::AllocationsManage => 'Manage agency allocations',
+            self::AgencyAccountsManage => 'Agency accounts: top up / adjust balances',
             self::InventoryView => 'View seat inventory (cabin seats, class limits)',
             self::InventoryManage => 'Manage seat inventory, roll forward, templates',
             self::BookingsView => 'View bookings & passengers',
