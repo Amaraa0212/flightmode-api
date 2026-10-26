@@ -27,6 +27,7 @@ class UserResource extends JsonResource
                 'city' => $this->airport->city,
                 'timezone' => $this->airport->timezone,
             ] : null),
+            'two_factor_enabled' => $this->hasTwoFactor(),
             'last_login_at' => $this->last_login_at?->toIso8601String(),
             'created_at' => $this->created_at?->toIso8601String(),
         ];

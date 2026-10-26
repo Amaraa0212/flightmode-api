@@ -23,12 +23,14 @@ class ActivityLogger
         Flight|int|null $flight = null,
         Passenger|int|null $passenger = null,
         array $properties = [],
+        ?int $userId = null,
     ): ActivityLog {
         $log = ActivityLog::create([
             'channel' => $channel,
             'event' => $event,
             'description' => $description ? mb_substr($description, 0, 500) : null,
-            'user_id' => auth()->id(),
+            // sign-in events happen before there is an authenticated user
+            'user_id' => $userId ?? auth()->id(),
             'subject_type' => $subject?->getMorphClass(),
             'subject_id' => $subject?->getKey(),
             'flight_id' => $flight instanceof Flight ? $flight->id : $flight,

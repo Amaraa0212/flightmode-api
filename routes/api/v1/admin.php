@@ -22,6 +22,7 @@ Route::middleware('can:users.manage')->group(function () {
     Route::apiResource('users', Admin\UserController::class);
     Route::post('users/{user}/api-token', [Admin\UserController::class, 'issueApiToken']);
     Route::delete('users/{user}/api-token', [Admin\UserController::class, 'revokeApiToken']);
+    Route::delete('users/{user}/two-factor', [Admin\UserController::class, 'resetTwoFactor']);
 });
 Route::middleware('can:roles.manage')->group(function () {
     Route::get('permissions', [Admin\RoleController::class, 'permissions']);

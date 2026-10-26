@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
+use App\Enums\ActivityChannel;
 use App\Enums\RoleScope;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\UserRequest;
 use App\Http\Resources\UserResource;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\Access\TwoFactor;
+use App\Services\ActivityLogger;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -21,6 +24,11 @@ use Illuminate\Validation\ValidationException;
  */
 class UserController extends Controller
 {
+    public function __construct(
+        private readonly ActivityLogger $logger,
+        private readonly TwoFactor $twoFactor,
+    ) {}
+
     public function index(Request $request): AnonymousResourceCollection
     {
         $users = $this->visible($request->user())->with(['role', 'airline', 'agency', 'airport'])
@@ -58,6 +66,10 @@ class UserController extends Controller
 
         if (($data['is_active'] ?? true) === false) {
             $user->tokens()->delete();
+        } elseif ($user->wasChanged('password')) {
+            // a password set by an administrator signs the user out everywhere
+            $user->revokeSessions();
+            $this->logger->log(ActivityChannel::Auth, 'auth.password_reset', 'Password set by '.$request->user()->email, $user);
         }
 
         return $this->success('User updated.', new UserResource($user->load(['role', 'airline', 'agency', 'airport'])));
@@ -86,8 +98,8 @@ class UserController extends Controller
             throw ValidationException::withMessages(['user' => 'API access is not enabled for this user\'s agency.']);
         }
 
-        $user->tokens()->where('name', 'partner-api')->delete();
-        $token = $user->createToken('partner-api', [User::PARTNER_TOKEN_ABILITY])->plainTextToken;
+        $user->tokens()->where('name', User::PARTNER_TOKEN_NAME)->delete();
+        $token = $user->createToken(User::PARTNER_TOKEN_NAME, [User::PARTNER_TOKEN_ABILITY])->plainTextToken;
 
         return $this->created('API token issued. Store it now, it will not be shown again.', ['token' => $token]);
     }
@@ -95,9 +107,25 @@ class UserController extends Controller
     public function revokeApiToken(Request $request, User $user): JsonResponse
     {
         $this->ensureVisible($request->user(), $user);
-        $user->tokens()->where('name', 'partner-api')->delete();
+        $user->tokens()->where('name', User::PARTNER_TOKEN_NAME)->delete();
 
         return $this->deleted('API token revoked.');
+    }
+
+    /** Lost phone: a system administrator turns Google Authenticator off; the user can set it up again */
+    public function resetTwoFactor(Request $request, User $user): JsonResponse
+    {
+        if (! $request->user()->isSystemAdmin()) {
+            throw new AuthorizationException('Only a system administrator can reset Google Authenticator.');
+        }
+
+        $user->forceFill(['two_factor_secret' => null, 'two_factor_confirmed_at' => null, 'two_factor_last_timestep' => null])->save();
+        $this->twoFactor->clearLock($user);
+        // whoever has the lost phone may also hold a session
+        $user->revokeSessions();
+        $this->logger->log(ActivityChannel::Auth, 'auth.two_factor_reset', 'Google Authenticator reset by '.$request->user()->email, $user);
+
+        return $this->success('Google Authenticator reset.', new UserResource($user->load(['role', 'airline', 'agency', 'airport'])));
     }
 
     /** Roles the actor may give in the user form (no administrator roles for airline / agency admins). */

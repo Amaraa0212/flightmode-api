@@ -23,7 +23,7 @@ class User extends Authenticatable
         'airline_id', 'agency_id', 'airport_id', 'is_active', 'last_login_at',
     ];
 
-    protected $hidden = ['password'];
+    protected $hidden = ['password', 'two_factor_secret'];
 
     /** @var array<string>|null */
     private ?array $permissionKeysCache = null;
@@ -34,6 +34,8 @@ class User extends Authenticatable
             'password' => 'hashed',
             'is_active' => 'boolean',
             'last_login_at' => 'datetime',
+            'two_factor_secret' => 'encrypted',
+            'two_factor_confirmed_at' => 'datetime',
         ];
     }
 
@@ -62,6 +64,12 @@ class User extends Authenticatable
         return $this->role?->scope ?? RoleScope::Airline;
     }
 
+    /** Google Authenticator is on: login needs a 6-digit code */
+    public function hasTwoFactor(): bool
+    {
+        return $this->two_factor_confirmed_at !== null && $this->two_factor_secret !== null;
+    }
+
     public function isSystemAdmin(): bool
     {
         return $this->scope() === RoleScope::Admin;
@@ -84,6 +92,17 @@ class User extends Authenticatable
     }
 
     public const PARTNER_TOKEN_ABILITY = 'partner';
+
+    public const PARTNER_TOKEN_NAME = 'partner-api';
+
+    /** Signs the user out everywhere (the agency API token stays), optionally keeping one token */
+    public function revokeSessions(?int $exceptTokenId = null): void
+    {
+        $this->tokens()
+            ->where('name', '!=', self::PARTNER_TOKEN_NAME)
+            ->when($exceptTokenId, fn ($q) => $q->whereKeyNot($exceptTokenId))
+            ->delete();
+    }
 
     /** True when the current request is authenticated with an agency machine-to-machine token (not a login token). */
     public function usesPartnerToken(): bool
