@@ -183,6 +183,9 @@ Broadcasting (Laravel Reverb): `POST /api/broadcasting/auth` — Sanctum Bearer,
 | GET | `/api/v1/admin/flights/{flight}` | flights.view | FlightController@show |
 | PUT | `/api/v1/admin/flights/{flight}` | flights.manage | FlightController@update |
 | GET | `/api/v1/admin/flights/{flight}/allocation-capacity` | flights.view | FlightController@allocationCapacity |
+| GET | `/api/v1/admin/agency-accounts` | agency_accounts.manage | AgencyAccountController@index |
+| POST | `/api/v1/admin/agency-accounts/top-up` | agency_accounts.manage | AgencyAccountController@topUp |
+| GET | `/api/v1/admin/agency-accounts/{account}/transactions` | agency_accounts.manage | AgencyAccountController@transactions |
 | GET | `/api/v1/admin/inventory/flights` | inventory.view | InventoryController@flights |
 | GET | `/api/v1/admin/flights/{flight}/inventory` | inventory.view | InventoryController@show |
 | PUT | `/api/v1/admin/flights/{flight}/inventory/cabins` | inventory.manage | InventoryController@saveCabins |
@@ -265,6 +268,12 @@ Broadcasting (Laravel Reverb): `POST /api/broadcasting/auth` — Sanctum Bearer,
 | Method | URI | Permission | Action |
 |---|---|---|---|
 | GET | `/api/v1/agency/allocations` | agency.portal | AllocationController@index |
+| GET | `/api/v1/agency/flights?date=` | agency.portal | HoldController@flights |
+| GET | `/api/v1/agency/holds` | agency.portal | HoldController@index |
+| POST | `/api/v1/agency/holds` | agency.portal | HoldController@store |
+| DELETE | `/api/v1/agency/holds/{hold}` | agency.portal | HoldController@destroy |
+| GET | `/api/v1/agency/accounts` | agency.portal | AccountController@index |
+| GET | `/api/v1/agency/accounts/{account}/transactions` | agency.portal | AccountController@transactions |
 | GET | `/api/v1/agency/allocations/{allocation}` | agency.portal | AllocationController@show |
 | POST | `/api/v1/agency/allocations/{allocation}/import` | agency.portal | BookingController@import |
 | GET | `/api/v1/agency/allocations/{allocation}/passengers` | agency.portal | AllocationController@passengers |

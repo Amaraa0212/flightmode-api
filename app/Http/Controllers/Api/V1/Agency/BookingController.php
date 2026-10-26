@@ -10,6 +10,7 @@ use App\Http\Requests\Shared\UpdatePassengerRequest;
 use App\Http\Resources\BookingResource;
 use App\Http\Resources\PassengerResource;
 use App\Models\AgencyAllocation;
+use App\Models\AgencyHold;
 use App\Models\Passenger;
 use App\Services\Access\AccessScope;
 use App\Services\Booking\BookingService;
@@ -38,6 +39,12 @@ class BookingController extends Controller
             throw ValidationException::withMessages(['allocation_id' => 'Choose the allocation to book on.']);
         }
         $this->access->ensureAllocation($request->user(), AgencyAllocation::query()->findOrFail($request->integer('allocation_id')));
+        if ($request->filled('hold_id')) {
+            $hold = AgencyHold::query()->findOrFail($request->integer('hold_id'));
+            if ((int) $hold->agency_allocation_id !== $request->integer('allocation_id')) {
+                throw ValidationException::withMessages(['hold_id' => 'The hold belongs to another allocation.']);
+            }
+        }
 
         $booking = $this->bookings->create(
             collect($request->validated())->except('flight_ids')->all(),

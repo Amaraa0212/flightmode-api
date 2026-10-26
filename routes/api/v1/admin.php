@@ -118,6 +118,13 @@ Route::middleware('can:seat_blocks.manage')->group(function () {
     Route::delete('flights/{flight}/seat-blocks', [Admin\SeatBlockController::class, 'unblock']);
 });
 
+// Prepaid agency accounts
+Route::middleware('can:agency_accounts.manage')->group(function () {
+    Route::get('agency-accounts', [Admin\AgencyAccountController::class, 'index']);
+    Route::post('agency-accounts/top-up', [Admin\AgencyAccountController::class, 'topUp']);
+    Route::get('agency-accounts/{account}/transactions', [Admin\AgencyAccountController::class, 'transactions']);
+});
+
 // Agency allocations
 Route::middleware('can:allocations.manage')->group(function () {
     Route::apiResource('allocations', Admin\AllocationController::class);

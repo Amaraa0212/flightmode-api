@@ -15,6 +15,7 @@ class StoreBookingRequest extends FormRequest
         return array_merge([
             'allocation_id' => ['required_without:flight_ids', 'nullable', 'integer', 'exists:agency_allocations,id'],
             'return_allocation_id' => ['nullable', 'integer', 'exists:agency_allocations,id', 'different:allocation_id'],
+            'hold_id' => ['nullable', 'integer', 'exists:agency_holds,id'],
             'flight_ids' => ['required_without:allocation_id', 'array', 'min:1', 'max:4'],
             'flight_ids.*' => ['integer', 'exists:flights,id'],
             'contact_email' => ['nullable', 'email', 'max:255'],

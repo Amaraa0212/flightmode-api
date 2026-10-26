@@ -11,6 +11,7 @@ use App\Enums\SegmentStatus;
 use App\Exceptions\BusinessRuleException;
 use App\Models\AgencyAllocation;
 use App\Models\AgencyAllocationFare;
+use App\Models\AgencyHold;
 use App\Models\Booking;
 use App\Models\CheckedBaggage;
 use App\Models\Fare;
@@ -20,6 +21,7 @@ use App\Models\PassengerSegment;
 use App\Models\SsrCode;
 use App\Models\User;
 use App\Services\ActivityLogger;
+use App\Services\Agency\AccountService;
 use App\Services\Allocation\AllocationService;
 use App\Services\Inventory\InventoryService;
 use App\Support\PassengerAge;
@@ -46,6 +48,7 @@ class BookingService
         private readonly TicketNumberGenerator $tickets,
         private readonly ActivityLogger $logger,
         private readonly InventoryService $inventory,
+        private readonly AccountService $accounts,
     ) {}
 
     /**
@@ -58,6 +61,15 @@ class BookingService
             $allocation = isset($data['allocation_id'])
                 ? AgencyAllocation::query()->with(['cabins', 'fares.fare'])->lockForUpdate()->findOrFail($data['allocation_id'])
                 : null;
+            $hold = isset($data['hold_id']) ? AgencyHold::query()->lockForUpdate()->findOrFail($data['hold_id']) : null;
+            if ($hold) {
+                if (! $hold->isActive() || (int) $hold->agency_allocation_id !== (int) $allocation?->id) {
+                    throw BusinessRuleException::make('hold_not_usable', 'This hold is released or belongs to another allocation.');
+                }
+                if (count($data['passengers']) > $hold->seats - $this->allocations->namedOnHold($hold)) {
+                    throw BusinessRuleException::make('hold_full', 'More passengers than the seats left on the hold.');
+                }
+            }
             $returnAllocation = isset($data['return_allocation_id'])
                 ? AgencyAllocation::query()->with(['cabins', 'fares.fare'])->lockForUpdate()->findOrFail($data['return_allocation_id'])
                 : null;
@@ -80,6 +92,7 @@ class BookingService
                 'airline_id' => $firstFlight->airline_id,
                 'agency_id' => $allocation?->agency_id,
                 'agency_allocation_id' => $allocation?->id,
+                'agency_hold_id' => $hold?->id,
                 'source' => $source,
                 'status' => BookingStatus::Confirmed,
                 'contact_email' => $data['contact_email'] ?? null,
@@ -89,12 +102,19 @@ class BookingService
 
             $waitlisted = false;
             foreach ($data['passengers'] as $row) {
-                $waitlisted = $this->addPassenger($booking, $flights, $row, $allocation, $returnAllocation, $goShow) || $waitlisted;
+                // a hold fixes the cabin and the fare of its passengers
+                $row = $hold ? array_merge($row, [
+                    'cabin_class' => $hold->cabin_class->value,
+                    'allocation_fare_id' => $hold->agency_allocation_fare_id ?? ($row['allocation_fare_id'] ?? null),
+                ]) : $row;
+                $waitlisted = $this->addPassenger($booking, $flights, $row, $allocation, $returnAllocation, $goShow, $hold) || $waitlisted;
             }
 
             if ($waitlisted) {
                 $booking->update(['status' => BookingStatus::Waitlisted]);
             }
+
+            $this->accounts->syncBooking($booking);
 
             $this->logger->log($this->channel($source), 'booking.created',
                 "PNR {$booking->pnr}, ".count($data['passengers']).' passenger(s)', $booking, $firstFlight);
@@ -150,6 +170,8 @@ class BookingService
                 $this->syncInfant($passenger, $data['infant'], $segments, $allocation);
             }
 
+            $this->accounts->syncBooking($booking);
+
             $this->logger->logChanges($channel, 'passenger.updated', $passenger, $original,
                 "PNR {$booking->pnr}", $firstFlight, $passenger);
 
@@ -177,6 +199,8 @@ class BookingService
                 $passenger->booking->update(['status' => BookingStatus::Cancelled]);
             }
 
+            $this->accounts->syncBooking($passenger->booking);
+
             $this->logger->log($channel, 'passenger.cancelled', $reason, $passenger, $passenger->segments->first()?->flight_id, $passenger);
         });
     }
@@ -198,6 +222,10 @@ class BookingService
 
             PassengerSegment::query()->whereIn('id', $segments->pluck('id'))
                 ->update(['status' => ($waitlisted ? SegmentStatus::Waitlisted : SegmentStatus::Booked)->value, 'seat_number' => null]);
+
+            // a confirmed seat is a written ticket: charge (or refund) the agency account
+            Booking::query()->whereIn('id', Passenger::withTrashed()->whereIn('id', $segments->pluck('passenger_id'))->pluck('booking_id'))
+                ->get()->each(fn (Booking $b) => $this->accounts->syncBooking($b));
 
             $this->logger->log(ActivityChannel::Admin, $waitlisted ? 'passenger.waitlisted' : 'passenger.unwaitlisted',
                 'Segments: '.$segments->pluck('id')->implode(', '));
@@ -297,7 +325,7 @@ class BookingService
      * @param  Collection<int, Flight>  $flights
      * @return bool whether the passenger was waitlisted
      */
-    private function addPassenger(Booking $booking, Collection $flights, array $row, ?AgencyAllocation $allocation, ?AgencyAllocation $returnAllocation, bool $goShow): bool
+    private function addPassenger(Booking $booking, Collection $flights, array $row, ?AgencyAllocation $allocation, ?AgencyAllocation $returnAllocation, bool $goShow, ?AgencyHold $hold = null): bool
     {
         $firstFlight = $flights->first();
         $attributes = $this->passengerAttributes($row);
@@ -318,7 +346,9 @@ class BookingService
         $waitlisted = false;
         foreach (array_filter([$allocation, $returnAllocation]) as $alloc) {
             try {
-                $this->allocations->assertCanTake($alloc, $cabin, $alloc === $allocation ? $bucket : $returnBucket);
+                $alloc === $allocation
+                    ? $this->allocations->assertCanTake($alloc, $cabin, $bucket, null, $hold)
+                    : $this->allocations->assertCanTake($alloc, $cabin, $returnBucket);
             } catch (BusinessRuleException $e) {
                 if (! $alloc->is_waitlist) {
                     throw $e;
@@ -543,7 +573,7 @@ class BookingService
 
         $bucket = $this->resolveBucket($allocation, $bucketId, $cabin);
         if ($allocation && ($cabin !== $first->cabin_class || $bucket?->id !== $first->agency_allocation_fare_id)) {
-            $this->allocations->assertCanTake($allocation, $cabin, $bucket, $passenger->id);
+            $this->allocations->assertCanTake($allocation, $cabin, $bucket, $passenger->id, $passenger->booking->hold);
         }
 
         $directFare = ! $allocation && isset($data['fare_id']) ? Fare::query()->find($data['fare_id']) : null;

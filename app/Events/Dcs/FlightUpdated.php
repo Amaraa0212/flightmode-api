@@ -7,8 +7,8 @@ use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
- * Something changed on a flight that other DCS counters should reload
- * (check-in, seat, baggage, group, passenger, flight status). Sent by ActivityLogger.
+ * Something changed on a flight that other DCS counters and gate devices should reload
+ * (check-in, seat, baggage, group, passenger, boarding, flight status). Sent by ActivityLogger.
  */
 class FlightUpdated implements ShouldBroadcastNow
 {
@@ -23,11 +23,18 @@ class FlightUpdated implements ShouldBroadcastNow
         public readonly ?array $seat = null,
         /** FlightStatistics::summary after the change — the counters' flight bar figures, no reload needed */
         public readonly ?array $statistics = null,
+        /** Gate agents whose flight list shows this flight (flight.* events only): their gate app reloads the list */
+        public readonly array $gateAgentIds = [],
     ) {}
 
-    public function broadcastOn(): PrivateChannel
+    /** @return array<PrivateChannel> */
+    public function broadcastOn(): array
     {
-        return new PrivateChannel("dcs.flight.{$this->flightId}");
+        return [
+            new PrivateChannel("dcs.flight.{$this->flightId}"),
+            new PrivateChannel("gate.flight.{$this->flightId}"),
+            ...array_map(fn (int $id) => new PrivateChannel("gate.agent.{$id}"), $this->gateAgentIds),
+        ];
     }
 
     public function broadcastAs(): string

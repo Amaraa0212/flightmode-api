@@ -1,8 +1,10 @@
 <?php
 
 use App\Http\Controllers\Api\V1\Admin\CharterRequestController;
+use App\Http\Controllers\Api\V1\Agency\AccountController;
 use App\Http\Controllers\Api\V1\Agency\AllocationController;
 use App\Http\Controllers\Api\V1\Agency\BookingController;
+use App\Http\Controllers\Api\V1\Agency\HoldController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -16,6 +18,16 @@ Route::middleware('can:agency.portal')->group(function () {
     Route::get('allocations/{allocation}/ssr-codes', [AllocationController::class, 'ssrCodes']);
     Route::get('allocations/{allocation}/return-options', [AllocationController::class, 'returnOptions']);
     Route::post('allocations/{allocation}/import', [BookingController::class, 'import']);
+
+    // find flights of a day, hold seats, enter names later
+    Route::get('flights', [HoldController::class, 'flights']);
+    Route::get('holds', [HoldController::class, 'index']);
+    Route::post('holds', [HoldController::class, 'store']);
+    Route::delete('holds/{hold}', [HoldController::class, 'destroy']);
+
+    // prepaid balance with each airline
+    Route::get('accounts', [AccountController::class, 'index']);
+    Route::get('accounts/{account}/transactions', [AccountController::class, 'transactions']);
 
     Route::post('bookings', [BookingController::class, 'store']);
     Route::get('passenger-lookup', [BookingController::class, 'lookup']);

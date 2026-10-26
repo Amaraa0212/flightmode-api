@@ -62,8 +62,27 @@ class ActivityLogger
             fn () => event(new FlightUpdated(
                 $log->flight_id, $log->event, $log->passenger_id, $log->user_id, $seat,
                 ($flight = Flight::find($log->flight_id)) ? app(FlightStatistics::class)->summary($flight) : null,
+                $this->gateAgentIds($log),
             )),
         ));
+    }
+
+    /**
+     * A flight-level change (status, gate, times, assignment) also goes to the assigned gate agents' flight lists —
+     * including agents just taken off the flight, so it drops from their list.
+     *
+     * @return array<int>
+     */
+    private function gateAgentIds(ActivityLog $log): array
+    {
+        if (! str_starts_with($log->event, 'flight.')) {
+            return [];
+        }
+
+        $current = DB::table('flight_gate_agents')->where('flight_id', $log->flight_id)->pluck('user_id')->all();
+        $before = $log->properties['changes']['gate_agents'][0] ?? [];
+
+        return array_values(array_unique(array_map('intval', [...$current, ...$before])));
     }
 
     /**
