@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
+use App\Enums\ActivityChannel;
 use App\Enums\BookingSource;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Shared\StoreBookingRequest;
@@ -72,6 +73,14 @@ class BookingController extends Controller
         $booking = $this->bookings->create($request->validated(), $user, BookingSource::Admin);
 
         return $this->created('Booking created.', new BookingResource($booking));
+    }
+
+    /** Issue the tickets of a booking on hold (before its ticket time limit). */
+    public function issue(Request $request, Booking $booking): JsonResponse
+    {
+        $this->access->ensureBooking($request->user(), $booking);
+
+        return $this->success('Tickets issued.', new BookingResource($this->bookings->issueTickets($booking, ActivityChannel::Admin)));
     }
 
     /** Put passengers into one PNR (legacy "group"). */

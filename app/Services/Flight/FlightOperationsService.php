@@ -129,6 +129,24 @@ class FlightOperationsService
         return $this->transition($flight, FlightStatus::Cancelled, 'flight.cancelled', ActivityChannel::Admin);
     }
 
+    /**
+     * Undo a close or a cancellation: a closed counter / gate opens check-in again, a cancelled flight goes back to scheduled.
+     * A departed flight stays departed (its passengers are already flown).
+     */
+    public function reopen(Flight $flight): Flight
+    {
+        $to = match ($flight->status) {
+            FlightStatus::CheckinClosed, FlightStatus::GateClosed => FlightStatus::CheckinOpen,
+            FlightStatus::Cancelled => FlightStatus::Scheduled,
+            default => throw BusinessRuleException::make('cannot_reopen', $flight->status === FlightStatus::Departed
+                ? 'A departed flight cannot be reopened.'
+                : 'Only a closed or cancelled flight can be reopened.'),
+        };
+        $flight->status_reason = null;
+
+        return $this->transition($flight, $to, 'flight.reopened', ActivityChannel::Admin);
+    }
+
     public function setGate(Flight $flight, ?string $gate): Flight
     {
         return $this->update($flight, ['gate' => $gate]);

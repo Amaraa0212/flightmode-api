@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Admin;
 
 use App\Enums\CabinClass;
+use App\Models\AgencyAllocation;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -15,10 +16,13 @@ class AllocationRequest extends FormRequest
             'agency_id' => ['required', 'integer', 'exists:agencies,id'],
             'outbound_flight_id' => ['required', 'integer', 'exists:flights,id'],
             'return_flight_id' => ['nullable', 'integer', 'exists:flights,id', 'different:outbound_flight_id'],
-            'seats' => ['required', 'integer', 'min:1'],
+            'mode' => ['sometimes', Rule::in([AgencyAllocation::FIXED, AgencyAllocation::POOL])],
+            // a pool allocation's seats are a limit, 0 = no limit
+            'seats' => ['required', 'integer', Rule::when($this->input('mode') === AgencyAllocation::POOL, 'min:0', 'min:1')],
             'deadline' => ['required', 'date'],
             'is_waitlist' => ['boolean'],
-            'cabins' => ['required', 'array', 'min:1'],
+            // a pool without cabins sells every cabin of the aircraft
+            'cabins' => [Rule::requiredIf($this->input('mode') !== AgencyAllocation::POOL), 'array'],
             'cabins.*' => ['integer', 'min:0'],
             'fares' => ['sometimes', 'array'],
             'fares.*.id' => ['nullable', 'integer'],

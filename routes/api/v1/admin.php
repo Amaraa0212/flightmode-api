@@ -91,6 +91,7 @@ Route::middleware('can:products.manage')->group(function () {
 // Flights
 Route::middleware('can:flights.view')->group(function () {
     Route::get('flights', [Admin\FlightController::class, 'index']);
+    Route::get('flights/latest', [Admin\FlightController::class, 'latest']);
     Route::get('flights/{flight}', [Admin\FlightController::class, 'show']);
     Route::get('flights/{flight}/statistics', [Admin\FlightController::class, 'statistics']);
     Route::get('flights/{flight}/fares', [Admin\FareController::class, 'forFlight']);
@@ -98,12 +99,14 @@ Route::middleware('can:flights.view')->group(function () {
 });
 Route::middleware('can:flights.manage')->group(function () {
     Route::post('flights', [Admin\FlightController::class, 'store']);
+    Route::post('flights/bulk', [Admin\FlightController::class, 'storeMany']);
     Route::put('flights/{flight}', [Admin\FlightController::class, 'update']);
     Route::delete('flights/{flight}', [Admin\FlightController::class, 'destroy']);
     Route::apiResource('flight-series', Admin\FlightSeriesController::class)->parameters(['flight-series' => 'flightSeries']);
 });
 Route::middleware('can:flights.operate')->group(function () {
     Route::get('flight-board', [Admin\FlightOperationController::class, 'board']);
+    Route::get('flight-board/calendar', [Admin\FlightOperationController::class, 'calendar']);
     Route::post('flights/{flight}/status', [Admin\FlightOperationController::class, 'changeStatus']);
     Route::put('flights/{flight}/gate', [Admin\FlightOperationController::class, 'setGate']);
     Route::put('flights/{flight}/estimated-departure', [Admin\FlightOperationController::class, 'setEstimatedDeparture']);
@@ -127,6 +130,11 @@ Route::middleware('can:agency_accounts.manage')->group(function () {
 
 // Agency allocations
 Route::middleware('can:allocations.manage')->group(function () {
+    Route::get('allocations-board', [Admin\AllocationController::class, 'board']);
+    Route::post('allocations/move', [Admin\AllocationController::class, 'move']);
+    Route::post('allocations/{allocation}/chinggis-push', [Admin\AllocationController::class, 'pushToChinggis']);
+    Route::get('flights/{flight}/allocations-overview', [Admin\AllocationController::class, 'flightOverview']);
+    Route::post('flights/{flight}/allocations/distribute', [Admin\AllocationController::class, 'distribute']);
     Route::apiResource('allocations', Admin\AllocationController::class);
     Route::get('allocations/{allocation}/passengers', [Admin\AllocationController::class, 'passengers']);
 });
@@ -144,6 +152,7 @@ Route::middleware('can:bookings.manage')->group(function () {
     Route::apiResource('passenger-bans', Admin\PassengerBanController::class);
     Route::post('bookings', [Admin\BookingController::class, 'store']);
     Route::post('bookings/merge', [Admin\BookingController::class, 'merge']);
+    Route::post('bookings/{booking}/issue', [Admin\BookingController::class, 'issue']);
     Route::post('passengers/{passenger}/split', [Admin\BookingController::class, 'split']);
     Route::put('passengers/{passenger}', [Admin\PassengerController::class, 'update']);
     Route::delete('passengers/{passenger}', [Admin\PassengerController::class, 'destroy']);
@@ -155,6 +164,7 @@ Route::middleware('can:bookings.manage')->group(function () {
 // Documents & reports
 Route::middleware('can:reports.view')->group(function () {
     Route::get('flights/{flight}/documents/pnl', [Admin\FlightDocumentController::class, 'pnl']);
+    Route::get('flights/{flight}/documents/reconciliation', [Admin\FlightDocumentController::class, 'reconciliation']);
     Route::get('flights/{flight}/documents/passengers', [Admin\FlightDocumentController::class, 'passengers']);
     Route::get('flights/{flight}/documents/apis', [Admin\FlightDocumentController::class, 'apis']);
     Route::get('flights/{flight}/documents/manifest', [Admin\FlightDocumentController::class, 'manifest']);

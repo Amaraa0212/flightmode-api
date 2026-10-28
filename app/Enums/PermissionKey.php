@@ -21,6 +21,8 @@ enum PermissionKey: string
     case FlightsView = 'flights.view';
     case FlightsManage = 'flights.manage';
     case FlightOperations = 'flights.operate';
+    case FlightsClose = 'flights.close';
+    case FlightsCancel = 'flights.cancel';
     case SeatBlocksManage = 'seat_blocks.manage';
     case AllocationsManage = 'allocations.manage';
     case AgencyAccountsManage = 'agency_accounts.manage';
@@ -58,7 +60,9 @@ enum PermissionKey: string
             self::ProductsManage => 'Manage baggage rules, seat prices, SSR prices, templates',
             self::FlightsView => 'View flights',
             self::FlightsManage => 'Create / edit flights',
-            self::FlightOperations => 'Flight manager (status, gate, ETD, gate agents)',
+            self::FlightOperations => 'Flight manager (open check-in, gate, gate agents)',
+            self::FlightsClose => 'Close check-in / close gate / depart (OCC)',
+            self::FlightsCancel => 'Cancel flights and reopen closed ones',
             self::SeatBlocksManage => 'Block seats',
             self::AllocationsManage => 'Manage agency allocations',
             self::AgencyAccountsManage => 'Agency accounts: top up / adjust balances',

@@ -65,6 +65,9 @@ class FareClassController extends AirlineCrudController
             'group_min' => ['nullable', 'required_if_accepted:is_group', 'integer', 'min:1'],
             'group_max' => ['nullable', 'integer', Rule::when($request->filled('group_min'), 'gte:group_min')],
             'is_active' => ['boolean'],
+            // TL: hours after booking / at the latest hours before departure (null = no hold)
+            'ticket_time_limit_hours' => ['nullable', 'integer', 'min:1', 'max:8760'],
+            'ticket_time_limit_before_departure_hours' => ['nullable', 'integer', 'min:0', 'max:8760'],
         ];
     }
 

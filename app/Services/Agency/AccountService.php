@@ -2,6 +2,7 @@
 
 namespace App\Services\Agency;
 
+use App\Enums\BookingStatus;
 use App\Enums\SegmentStatus;
 use App\Exceptions\BusinessRuleException;
 use App\Models\AgencyAccount;
@@ -60,7 +61,8 @@ class AccountService
 
         $passengers = Passenger::withTrashed()->with('segments')->where('booking_id', $booking->id)->get();
         foreach ($passengers as $passenger) {
-            $due = $passenger->trashed() ? 0.0 : (float) $passenger->segments
+            // an on-hold booking is charged when its tickets are issued
+            $due = $passenger->trashed() || $booking->status === BookingStatus::OnHold ? 0.0 : (float) $passenger->segments
                 ->whereNotIn('status', [SegmentStatus::Cancelled, SegmentStatus::Waitlisted])
                 ->sum(fn ($s) => (float) $s->fare_amount + (float) $s->tax_amount);
             // charges are negative, refunds positive

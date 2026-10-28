@@ -14,7 +14,10 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
 
-/** Travel agencies. Airline users see the agencies contracted with their airline. */
+/**
+ * Travel agencies. Airline users see the agencies contracted with their airline; what they add is their own
+ * sales channel (ticket office, web, call center, own agents), which no other airline sees.
+ */
 class AgencyController extends Controller
 {
     public function index(Request $request): AnonymousResourceCollection
@@ -22,6 +25,8 @@ class AgencyController extends Controller
         return AgencyResource::collection(
             $this->visible($request->user())->with('airlines')
                 ->when($request->filled('search'), fn ($q) => $q->where('name', 'like', '%'.$request->string('search').'%'))
+                ->when($request->filled('channel'), fn ($q) => $q->whereIn('channel', (array) $request->input('channel')))
+                ->when($request->filled('owned'), fn ($q) => $request->boolean('owned') ? $q->whereNotNull('owner_airline_id') : $q->whereNull('owner_airline_id'))
                 ->orderBy('name')
                 ->paginate($request->integer('per_page', 50))
         );
@@ -32,7 +37,7 @@ class AgencyController extends Controller
         $user = $request->user();
 
         $agency = DB::transaction(function () use ($request, $user) {
-            $agency = Agency::create($request->validated());
+            $agency = Agency::create($request->validated() + ['owner_airline_id' => $user->airline_id]);
             if ($user->airline_id) {
                 $agency->airlines()->attach($user->airline_id, ['is_active' => true]);
             }
@@ -71,7 +76,8 @@ class AgencyController extends Controller
     private function visible(User $user): Builder
     {
         return Agency::query()
-            ->when(! $user->isSystemAdmin() && $user->airline_id, fn ($q) => $q->whereHas('airlines', fn ($a) => $a->whereKey($user->airline_id)))
+            ->when(! $user->isSystemAdmin() && $user->airline_id, fn ($q) => $q->whereHas('airlines', fn ($a) => $a->whereKey($user->airline_id))
+                ->where(fn ($o) => $o->whereNull('owner_airline_id')->orWhere('owner_airline_id', $user->airline_id)))
             ->when(! $user->isSystemAdmin() && ! $user->airline_id, fn ($q) => $q->whereKey($user->agency_id ?? 0));
     }
 

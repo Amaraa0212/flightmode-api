@@ -46,8 +46,10 @@ class RbdModificationController extends AirlineCrudController
             'rbd_id' => [$required, 'integer', Rule::exists('rbds', 'id')->where('airline_id', $this->targetAirlineId($request, $model))],
             'type' => [$required, Rule::in(RbdModification::TYPES)],
             'timeframe_hours' => [$required, 'integer', 'min:0'],
-            'amount' => ['nullable', 'numeric', 'min:0'],
-            'percentage' => ['nullable', 'integer', 'between:0,100'],
+            // the penalty is a fixed amount or a percentage of the fare, never both
+            'amount' => ['nullable', 'numeric', 'min:0', 'prohibits:percentage'],
+            'currency' => ['nullable', 'required_with:amount', 'string', 'size:3'],
+            'percentage' => ['nullable', 'integer', 'between:0,100', 'prohibits:amount'],
             'is_allowed' => ['boolean'],
         ];
     }

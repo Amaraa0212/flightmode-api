@@ -28,6 +28,7 @@ class AllocationResource extends JsonResource
             'agency_id' => $this->agency_id,
             'outbound_flight' => new FlightResource($this->whenLoaded('outboundFlight')),
             'return_flight' => new FlightResource($this->whenLoaded('returnFlight')),
+            'mode' => $this->mode,
             'seats' => $this->seats,
             'deadline' => $this->deadline->toDateString(),
             'uses_fare_quotas' => $this->uses_fare_quotas,
@@ -48,6 +49,11 @@ class AllocationResource extends JsonResource
                 'is_manual' => $f->isManual(),
             ])),
             'usage' => $this->when($this->usage !== null, fn () => $this->usage),
+            // last push to the Chinggis agent API (agencies with chinggis_sync)
+            'chinggis' => [
+                'synced_at' => $this->chinggis_synced_at?->toIso8601String(),
+                'error' => $this->chinggis_error,
+            ],
             'created_at' => $this->created_at?->toIso8601String(),
         ];
     }

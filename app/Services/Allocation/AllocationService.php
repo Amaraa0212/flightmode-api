@@ -18,13 +18,17 @@ use Illuminate\Support\Facades\DB;
 /**
  * Agency seat allocations: creation with quota checks, usage and availability.
  * "Used" always means: non-infant passengers of this allocation that hold a place on the outbound flight.
+ *
+ * A fixed allocation takes its seats out of the flight. A pool allocation takes nothing out: the pool agencies sell
+ * the flight's free seats together (what they sell counts like a direct sale), each up to its optional limit, and
+ * the unnamed seats of a pool agency's hold are gone for everyone else.
  */
 class AllocationService
 {
     public function __construct(private readonly ChinggisSync $chinggis) {}
 
     /**
-     * @param array{airline_id: int, agency_id: int, outbound_flight_id: int, return_flight_id?: ?int, seats: int, deadline: string,
+     * @param array{airline_id: int, agency_id: int, outbound_flight_id: int, return_flight_id?: ?int, mode?: string, seats: int, deadline: string,
      *              is_waitlist?: bool, cabins: array<string, int>, fares?: array<int, array<string, mixed>>} $data
      */
     public function save(array $data, ?AgencyAllocation $allocation = null): AgencyAllocation
@@ -46,35 +50,53 @@ class AllocationService
             $this->assertAgencyContracted($data['agency_id'], $data['airline_id']);
             $this->assertNotDuplicate($data, $allocation);
 
-            foreach (array_filter([$outbound, $return]) as $flight) {
-                $free = $this->seatsLeftForAllocations($flight, $allocation);
-                if ($data['seats'] > $free) {
-                    throw BusinessRuleException::make('not_enough_seats',
-                        "Flight {$flight->flight_number} has only {$free} seat(s) left for allocations.");
+            $mode = $data['mode'] ?? $allocation?->mode ?? AgencyAllocation::FIXED;
+            $pool = $mode === AgencyAllocation::POOL;
+
+            if ($pool) {
+                // nothing is taken out of the flight: the cabins are what the agency may sell, their seats a limit (0 = none)
+                $data['cabins'] = ($data['cabins'] ?? []) ?: $outbound->aircraft?->cabins()->where('seat_count', '>', 0)
+                    ->pluck('cabin_class')->mapWithKeys(fn ($c) => [$c->value => 0])->all() ?? [];
+                if ($data['cabins'] === []) {
+                    throw BusinessRuleException::make('cabin_required', 'Choose at least one cabin the agency may sell.');
+                }
+                if ($data['seats'] > 0 && max($data['cabins']) > $data['seats']) {
+                    throw BusinessRuleException::make('cabins_exceed_seats', 'A cabin limit is higher than the allocation limit.');
+                }
+            } else {
+                if ($data['seats'] < 1) {
+                    throw BusinessRuleException::make('seats_required', 'A fixed allocation needs at least one seat.');
+                }
+
+                foreach (array_filter([$outbound, $return]) as $flight) {
+                    $free = $this->seatsLeftForAllocations($flight, $allocation);
+                    if ($data['seats'] > $free) {
+                        throw BusinessRuleException::make('not_enough_seats',
+                            "Flight {$flight->flight_number} has only {$free} seat(s) left for allocations.");
+                    }
+                }
+
+                foreach (array_filter([$outbound, $return]) as $flight) {
+                    foreach ($data['cabins'] as $cabin => $seats) {
+                        if ($seats <= 0) {
+                            continue;
+                        }
+                        $cabinClass = CabinClass::from($cabin);
+                        $free = $this->cabinSeatsLeftForAllocations($flight, $cabinClass, $allocation);
+                        if ($seats > $free) {
+                            throw BusinessRuleException::make('not_enough_cabin_seats',
+                                "Flight {$flight->flight_number}: cabin {$cabinClass->value} has only {$free} seat(s) left for allocations.");
+                        }
+                    }
+                }
+
+                if (array_sum($data['cabins']) > $data['seats']) {
+                    throw BusinessRuleException::make('cabins_exceed_seats', 'Cabin seats add up to more than the allocation.');
                 }
             }
 
-            foreach (array_filter([$outbound, $return]) as $flight) {
-                foreach ($data['cabins'] as $cabin => $seats) {
-                    if ($seats <= 0) {
-                        continue;
-                    }
-                    $cabinClass = CabinClass::from($cabin);
-                    $free = $this->cabinSeatsLeftForAllocations($flight, $cabinClass, $allocation);
-                    if ($seats > $free) {
-                        throw BusinessRuleException::make('not_enough_cabin_seats',
-                            "Flight {$flight->flight_number}: cabin {$cabinClass->value} has only {$free} seat(s) left for allocations.");
-                    }
-                }
-            }
-
-            if ($allocation && $data['seats'] < $this->usedSeats($allocation)) {
+            if ($allocation && ($data['seats'] > 0 || ! $pool) && $data['seats'] < $this->usedSeats($allocation)) {
                 throw BusinessRuleException::make('below_used', 'Seats cannot be lower than the passengers already booked.');
-            }
-
-            $cabinTotal = array_sum($data['cabins']);
-            if ($cabinTotal > $data['seats']) {
-                throw BusinessRuleException::make('cabins_exceed_seats', 'Cabin seats add up to more than the allocation.');
             }
 
             // an update without "fares" keeps the fare buckets it has
@@ -86,6 +108,7 @@ class AllocationService
                 'agency_id' => $data['agency_id'],
                 'outbound_flight_id' => $outbound->id,
                 'return_flight_id' => $return?->id,
+                'mode' => $mode,
                 'seats' => $data['seats'],
                 'deadline' => $data['deadline'],
                 'is_waitlist' => $data['is_waitlist'] ?? false,
@@ -93,7 +116,8 @@ class AllocationService
 
             $allocation->cabins()->delete();
             foreach ($data['cabins'] as $cabin => $seats) {
-                if ($seats > 0) {
+                // a pool cabin row with 0 seats = may sell this cabin without a limit
+                if ($seats > 0 || $pool) {
                     $allocation->cabins()->create(['cabin_class' => CabinClass::from($cabin), 'seats' => $seats]);
                 }
             }
@@ -119,22 +143,20 @@ class AllocationService
         $allocation->delete();
     }
 
-    /** Seats of a flight not yet given to allocations or sold directly by the airline. */
+    /** Seats of a flight not yet given to fixed allocations, sold outside them (direct / pool) or held by pool agencies. */
     public function seatsLeftForAllocations(Flight $flight, ?AgencyAllocation $except = null): int
     {
         $total = (int) $flight->aircraft?->total_seats;
 
         $allocated = AgencyAllocation::query()
+            ->where('mode', AgencyAllocation::FIXED)
             ->where(fn ($q) => $q->where('outbound_flight_id', $flight->id)->orWhere('return_flight_id', $flight->id))
             ->when($except?->exists, fn ($q) => $q->whereKeyNot($except->id))
             ->sum('seats');
 
-        $direct = $this->activeAdultSegments()
-            ->where('flight_id', $flight->id)
-            ->whereHas('passenger.booking', fn ($q) => $q->whereNull('agency_allocation_id'))
-            ->count();
+        $sold = $this->soldOutsideFixed($flight)->count();
 
-        return max(0, $total - (int) $allocated - $direct);
+        return max(0, $total - (int) $allocated - $sold - $this->poolHeldSeats($flight));
     }
 
     /**
@@ -146,8 +168,12 @@ class AllocationService
         return max(0, $this->cabinAllocationRoom($flight, $cabin, $except));
     }
 
-    /** Same as cabinSeatsLeftForAllocations, but negative when the cabin is already over-allocated. */
-    public function cabinAllocationRoom(Flight $flight, CabinClass $cabin, ?AgencyAllocation $except = null): int
+    /**
+     * Same as cabinSeatsLeftForAllocations, but negative when the cabin is already over-allocated. This is also what
+     * pool agencies may still sell: `$exceptPassengerId` / `$exceptHoldId` leave out the passenger being changed and
+     * the hold being named.
+     */
+    public function cabinAllocationRoom(Flight $flight, CabinClass $cabin, ?AgencyAllocation $except = null, ?int $exceptPassengerId = null, ?int $exceptHoldId = null): int
     {
         $inventory = $flight->cabinInventory()->get();
         $size = $inventory->isNotEmpty()
@@ -157,17 +183,59 @@ class AllocationService
         $allocated = AgencyAllocationCabin::query()
             ->where('cabin_class', $cabin->value)
             ->whereHas('allocation', fn ($q) => $q
+                ->where('mode', AgencyAllocation::FIXED)
                 ->where(fn ($x) => $x->where('outbound_flight_id', $flight->id)->orWhere('return_flight_id', $flight->id))
                 ->when($except?->exists, fn ($x) => $x->whereKeyNot($except->id)))
             ->sum('seats');
 
-        $direct = $this->activeAdultSegments()
-            ->where('flight_id', $flight->id)
+        $sold = $this->soldOutsideFixed($flight)
             ->where('cabin_class', $cabin->value)
-            ->whereHas('passenger.booking', fn ($q) => $q->whereNull('agency_allocation_id'))
+            ->when($exceptPassengerId, fn ($q) => $q->where('passenger_id', '!=', $exceptPassengerId))
             ->count();
 
-        return $size - (int) $allocated - $direct;
+        return $size - (int) $allocated - $sold - $this->poolHeldSeats($flight, $cabin, $exceptHoldId);
+    }
+
+    /** Seats a pool allocation may still sell in a cabin: the shared room on each of its flights. */
+    public function poolRoom(AgencyAllocation $allocation, CabinClass $cabin, ?int $exceptPassengerId = null, ?int $exceptHoldId = null): int
+    {
+        $allocation->loadMissing(['outboundFlight', 'returnFlight']);
+
+        return max(0, min(array_map(
+            fn (Flight $flight) => $this->cabinAllocationRoom($flight, $cabin, null, $exceptPassengerId, $exceptHoldId),
+            array_filter([$allocation->outboundFlight, $allocation->returnFlight]),
+        )));
+    }
+
+    /**
+     * Seats the allocation can still take in a cabin (fare bucket, when given): its own limits and, for a pool,
+     * what is left on the flight. Holds and names use this.
+     */
+    public function freeToTake(AgencyAllocation $allocation, CabinClass $cabin, ?AgencyAllocationFare $bucket = null, ?int $exceptPassengerId = null, ?AgencyHold $hold = null): int
+    {
+        $allocation->loadMissing('cabins');
+        $row = $allocation->cabins->firstWhere('cabin_class', $cabin);
+        if (! $row) {
+            return 0;
+        }
+
+        $taken = fn (?CabinClass $c = null) => $this->usedSeats($allocation, $c, $exceptPassengerId) + $this->heldSeats($allocation, $c, null, $hold?->id);
+        $limits = [];
+        // a pool cabin / allocation with 0 seats has no limit of its own
+        if (! $allocation->isPool() || $row->seats > 0) {
+            $limits[] = $row->seats - $taken($cabin);
+        }
+        if (! $allocation->isPool() || $allocation->seats > 0) {
+            $limits[] = $allocation->seats - $taken();
+        }
+        if ($bucket && $bucket->seats > 0) {
+            $limits[] = $bucket->seats - $this->usedFareSeats($bucket, $exceptPassengerId) - $this->heldSeats($allocation, null, $bucket, $hold?->id);
+        }
+        if ($allocation->isPool()) {
+            $limits[] = $this->poolRoom($allocation, $cabin, $exceptPassengerId, $hold?->id);
+        }
+
+        return max(0, min($limits));
     }
 
     public function usedSeats(AgencyAllocation $allocation, ?CabinClass $cabin = null, ?int $exceptPassengerId = null): int
@@ -203,12 +271,19 @@ class AllocationService
         $allocation->loadMissing(['cabins', 'fares.fare', 'outboundFlight']);
         $used = $this->usedSeats($allocation);
         $held = $this->heldSeats($allocation);
+        $remaining = max(0, $allocation->seats - $used - $held);
+        if ($allocation->isPool()) {
+            // what the agency can still sell: the shared room, within its own limit
+            $room = $allocation->cabins->sum(fn ($cabin) => $this->freeToTake($allocation, $cabin->cabin_class));
+            $remaining = $allocation->seats > 0 ? min($remaining, $room) : $room;
+        }
 
         return [
+            'mode' => $allocation->mode,
             'seats' => $allocation->seats,
             'used' => $used,
             'held' => $held,
-            'remaining' => max(0, $allocation->seats - $used - $held),
+            'remaining' => $remaining,
             'is_open_for_names' => $allocation->isOpenForNames(),
             'names_deadline_at' => $allocation->namesDeadlineAt()->toIso8601String(),
             'cabins' => $allocation->cabins->map(function ($cabin) use ($allocation) {
@@ -220,7 +295,9 @@ class AllocationService
                     'seats' => $cabin->seats,
                     'used' => $usedInCabin,
                     'held' => $heldInCabin,
-                    'remaining' => max(0, $cabin->seats - $usedInCabin - $heldInCabin),
+                    'remaining' => $allocation->isPool()
+                        ? $this->freeToTake($allocation, $cabin->cabin_class)
+                        : max(0, $cabin->seats - $usedInCabin - $heldInCabin),
                 ];
             })->values()->all(),
             'fares' => $allocation->fares->map(function (AgencyAllocationFare $bucket) use ($allocation) {
@@ -248,14 +325,10 @@ class AllocationService
      */
     public function assertCanTake(AgencyAllocation $allocation, CabinClass $cabin, ?AgencyAllocationFare $bucket, ?int $exceptPassengerId = null, ?AgencyHold $hold = null): void
     {
-        $cabinSeats = (int) $allocation->cabins->firstWhere('cabin_class', $cabin)?->seats;
-        $heldInCabin = $this->heldSeats($allocation, $cabin, null, $hold?->id);
-        if ($this->usedSeats($allocation, $cabin, $exceptPassengerId) + $heldInCabin >= $cabinSeats) {
-            throw BusinessRuleException::make('cabin_full', "Cabin {$cabin->value} of this allocation is full.");
-        }
-
-        if ($this->usedSeats($allocation, null, $exceptPassengerId) + $this->heldSeats($allocation, null, null, $hold?->id) >= $allocation->seats) {
-            throw BusinessRuleException::make('allocation_full', 'This allocation is full.');
+        if ($allocation->isPool()) {
+            $this->assertPoolCanTake($allocation, $cabin, $exceptPassengerId, $hold);
+        } else {
+            $this->assertFixedCanTake($allocation, $cabin, $exceptPassengerId, $hold);
         }
 
         if ($bucket && $bucket->seats > 0
@@ -265,6 +338,36 @@ class AllocationService
 
         if ($hold && $this->namedOnHold($hold, $exceptPassengerId) >= $hold->seats) {
             throw BusinessRuleException::make('hold_full', "Every seat of this hold already has a name ({$hold->seats}).");
+        }
+    }
+
+    private function assertPoolCanTake(AgencyAllocation $allocation, CabinClass $cabin, ?int $exceptPassengerId, ?AgencyHold $hold): void
+    {
+        $row = $allocation->cabins->firstWhere('cabin_class', $cabin);
+        if (! $row) {
+            throw BusinessRuleException::make('cabin_not_in_allocation', "This allocation does not sell cabin {$cabin->value}.");
+        }
+        if ($row->seats > 0 && $this->usedSeats($allocation, $cabin, $exceptPassengerId) + $this->heldSeats($allocation, $cabin, null, $hold?->id) >= $row->seats) {
+            throw BusinessRuleException::make('cabin_full', "Cabin {$cabin->value} of this allocation is full.");
+        }
+        if ($allocation->seats > 0 && $this->usedSeats($allocation, null, $exceptPassengerId) + $this->heldSeats($allocation, null, null, $hold?->id) >= $allocation->seats) {
+            throw BusinessRuleException::make('allocation_full', 'This allocation is full.');
+        }
+        if ($this->poolRoom($allocation, $cabin, $exceptPassengerId, $hold?->id) < 1) {
+            throw BusinessRuleException::make('flight_full', "No seat left for sale in cabin {$cabin->value} of this flight.");
+        }
+    }
+
+    private function assertFixedCanTake(AgencyAllocation $allocation, CabinClass $cabin, ?int $exceptPassengerId, ?AgencyHold $hold): void
+    {
+        $cabinSeats = (int) $allocation->cabins->firstWhere('cabin_class', $cabin)?->seats;
+        $heldInCabin = $this->heldSeats($allocation, $cabin, null, $hold?->id);
+        if ($this->usedSeats($allocation, $cabin, $exceptPassengerId) + $heldInCabin >= $cabinSeats) {
+            throw BusinessRuleException::make('cabin_full', "Cabin {$cabin->value} of this allocation is full.");
+        }
+
+        if ($this->usedSeats($allocation, null, $exceptPassengerId) + $this->heldSeats($allocation, null, null, $hold?->id) >= $allocation->seats) {
+            throw BusinessRuleException::make('allocation_full', 'This allocation is full.');
         }
     }
 
@@ -300,6 +403,30 @@ class AllocationService
             ->whereHas('passenger', fn ($q) => $q->whereNull('infant_of_passenger_id')
                 ->whereHas('booking', fn ($b) => $b->where('agency_hold_id', $hold->id)))
             ->count();
+    }
+
+    /** Unnamed seats of active pool holds on a flight: gone for everyone else. */
+    public function poolHeldSeats(Flight $flight, ?CabinClass $cabin = null, ?int $exceptHoldId = null): int
+    {
+        return (int) AgencyHold::query()->with('allocation.outboundFlight')
+            ->where('status', AgencyHold::ACTIVE)
+            ->when($cabin, fn ($q) => $q->where('cabin_class', $cabin->value))
+            ->when($exceptHoldId, fn ($q) => $q->whereKeyNot($exceptHoldId))
+            ->whereHas('allocation', fn ($q) => $q->where('mode', AgencyAllocation::POOL)
+                ->where(fn ($x) => $x->where('outbound_flight_id', $flight->id)->orWhere('return_flight_id', $flight->id)))
+            ->get()
+            // like heldSeats: a hold keeps seats only while its allocation takes names
+            ->filter(fn (AgencyHold $h) => $h->allocation->isOpenForNames())
+            ->sum(fn (AgencyHold $h) => max(0, $h->seats - $this->namedOnHold($h)));
+    }
+
+    /** Passengers on the flight that no fixed allocation pays for: direct sales and pool sales. */
+    private function soldOutsideFixed(Flight $flight)
+    {
+        return $this->activeAdultSegments()
+            ->where('flight_id', $flight->id)
+            ->whereHas('passenger.booking', fn ($q) => $q->whereNull('agency_allocation_id')
+                ->orWhereHas('allocation', fn ($a) => $a->where('mode', AgencyAllocation::POOL)));
     }
 
     private function activeAdultSegments()

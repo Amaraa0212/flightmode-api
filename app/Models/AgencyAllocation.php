@@ -12,7 +12,16 @@ class AgencyAllocation extends Model
 {
     use SoftDeletes;
 
+    /** Seats taken out of the flight for this agency */
+    public const FIXED = 'fixed';
+
+    /** Shared free sale: no seats taken out, the agency sells the flight's free seats (seats / cabin seats = limit, 0 = none) */
+    public const POOL = 'pool';
+
     protected $guarded = ['id'];
+
+    /** Column defaults, so a freshly created model returns them too */
+    protected $attributes = ['mode' => self::FIXED];
 
     protected function casts(): array
     {
@@ -20,6 +29,7 @@ class AgencyAllocation extends Model
             'deadline' => 'date',
             'uses_fare_quotas' => 'boolean',
             'is_waitlist' => 'boolean',
+            'chinggis_synced_at' => 'datetime',
         ];
     }
 
@@ -56,6 +66,11 @@ class AgencyAllocation extends Model
     public function bookings(): HasMany
     {
         return $this->hasMany(Booking::class);
+    }
+
+    public function isPool(): bool
+    {
+        return $this->mode === self::POOL;
     }
 
     public function isRoundTrip(): bool

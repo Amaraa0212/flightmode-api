@@ -360,13 +360,18 @@ class InventoryService
                     'allocation_id' => $allocation->id,
                     'agency_id' => $allocation->agency_id,
                     'agency' => $allocation->agency?->name,
+                    'mode' => $allocation->mode,
                     'cabin_class' => $cabin->cabin_class->value,
                     'seats' => $cabin->seats,
                     'sold' => $sold,
-                    'available' => max(0, $cabin->seats - $sold),
+                    // what the agency keeps from other sales: a fixed allocation its unsold seats, a pool only its unnamed holds
+                    'available' => $allocation->isPool()
+                        ? $this->allocations->heldSeats($allocation, $cabin->cabin_class)
+                        : max(0, $cabin->seats - $sold),
                     'is_waitlist' => $allocation->is_waitlist,
                     // for editing the allocation from the seat allocation screen
                     'allocation_seats' => $allocation->seats,
+                    'pool_free' => $allocation->isPool() ? $this->allocations->freeToTake($allocation, $cabin->cabin_class) : null,
                     'outbound_flight_id' => $allocation->outbound_flight_id,
                     'return_flight_id' => $allocation->return_flight_id,
                     'deadline' => $allocation->deadline?->toDateString(),

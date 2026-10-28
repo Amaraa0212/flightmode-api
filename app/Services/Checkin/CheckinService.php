@@ -3,6 +3,7 @@
 namespace App\Services\Checkin;
 
 use App\Enums\ActivityChannel;
+use App\Enums\BookingStatus;
 use App\Enums\CheckinChannel;
 use App\Enums\FlightStatus;
 use App\Enums\SegmentStatus;
@@ -57,6 +58,10 @@ class CheckinService
 
             if ($segment->passenger->isInfant()) {
                 throw BusinessRuleException::make('infant_checkin', 'Infants are checked in together with their adult.');
+            }
+
+            if ($segment->passenger->booking?->status === BookingStatus::OnHold) {
+                throw BusinessRuleException::make('not_ticketed', 'This booking is on hold: issue the tickets before check-in.');
             }
 
             if (in_array($segment->status, [SegmentStatus::Cancelled, SegmentStatus::Waitlisted], true)) {

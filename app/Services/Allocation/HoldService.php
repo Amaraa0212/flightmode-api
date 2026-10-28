@@ -31,8 +31,9 @@ class HoldService
                 throw BusinessRuleException::make('names_deadline_passed', 'The name list deadline for this allocation has passed.');
             }
 
-            $cabinSeats = (int) $allocation->cabins->firstWhere('cabin_class', $cabin)?->seats;
-            if ($cabinSeats < 1) {
+            // a pool cabin row may have 0 seats (sells without a limit of its own)
+            $cabinRow = $allocation->cabins->firstWhere('cabin_class', $cabin);
+            if (! $cabinRow || (! $allocation->isPool() && $cabinRow->seats < 1)) {
                 throw BusinessRuleException::make('cabin_not_in_allocation', "This allocation has no seats in cabin {$cabin->value}.");
             }
 
@@ -47,13 +48,8 @@ class HoldService
                 throw BusinessRuleException::make('fare_wrong_cabin', 'The chosen fare is for another cabin.');
             }
 
-            $free = min(
-                $cabinSeats - $this->allocations->usedSeats($allocation, $cabin) - $this->allocations->heldSeats($allocation, $cabin),
-                $allocation->seats - $this->allocations->usedSeats($allocation) - $this->allocations->heldSeats($allocation),
-                $bucket && $bucket->seats > 0
-                    ? $bucket->seats - $this->allocations->usedFareSeats($bucket) - $this->allocations->heldSeats($allocation, null, $bucket)
-                    : PHP_INT_MAX,
-            );
+            // pool: also what is left on the flight — a seat held here is gone for the other agencies
+            $free = $this->allocations->freeToTake($allocation, $cabin, $bucket);
             if ($seats > $free) {
                 throw BusinessRuleException::make('not_enough_seats', 'Only '.max(0, $free).' seat(s) left to hold.');
             }

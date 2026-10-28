@@ -6,11 +6,13 @@ use App\Exports\ChinaApisExport;
 use App\Exports\FlightPassengersExport;
 use App\Exports\ManifestExport;
 use App\Exports\NoShowExport;
+use App\Exports\ReconciliationExport;
 use App\Http\Controllers\Controller;
 use App\Mail\FlightDocumentMail;
 use App\Models\Flight;
 use App\Services\Access\AccessScope;
 use App\Services\Documents\ManifestService;
+use App\Services\Documents\PassengerReconciliation;
 use App\Services\Documents\PnlGenerator;
 use App\Support\Spreadsheet\SpreadsheetExport;
 use Illuminate\Http\JsonResponse;
@@ -19,7 +21,7 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\Response;
 
-/** Flight documents: PNL, passenger list, APIS (China), manifests, no-show list. Download or e-mail. */
+/** Flight documents: PNL, PNL reconciliation, passenger list, APIS (China), manifests, no-show list. Download or e-mail. */
 class FlightDocumentController extends Controller
 {
     private const PARTS = ['passengers', 'baggage', 'balance', 'excess_baggage'];
@@ -28,6 +30,7 @@ class FlightDocumentController extends Controller
         private readonly AccessScope $access,
         private readonly PnlGenerator $pnl,
         private readonly ManifestService $manifest,
+        private readonly PassengerReconciliation $reconciliation,
     ) {}
 
     public function pnl(Request $request, Flight $flight): Response
@@ -39,6 +42,20 @@ class FlightDocumentController extends Controller
             'Content-Type' => 'text/plain; charset=UTF-8',
             'Content-Disposition' => 'attachment; filename="'.$file['filename'].'"',
         ]);
+    }
+
+    /** PNL vs. who flew: flown / no-show / go-show / offloaded with ADT/CHD/INF totals. ?format=json|xlsx */
+    public function reconciliation(Request $request, Flight $flight): JsonResponse|Response
+    {
+        $this->access->ensureFlight($request->user(), $flight);
+        $format = $request->validate(['format' => ['nullable', Rule::in(['json', 'xlsx'])]])['format'] ?? 'json';
+        $document = $this->reconciliation->build($flight);
+
+        if ($format === 'xlsx') {
+            return (new ReconciliationExport($document))->download($this->name($flight, 'pnl-report', SpreadsheetExport::XLSX));
+        }
+
+        return response()->json(['data' => $document]);
     }
 
     /** ?format=xlsx|csv */

@@ -19,6 +19,7 @@ class BookingResource extends JsonResource
             'agency_allocation_id' => $this->agency_allocation_id,
             'source' => $this->source->value,
             'status' => $this->status->value,
+            'ticketing_deadline_at' => $this->ticketing_deadline_at?->toIso8601String(),
             'contact_email' => $this->contact_email,
             'contact_phone' => $this->contact_phone,
             'ticket_emailed_at' => $this->ticket_emailed_at?->toIso8601String(),

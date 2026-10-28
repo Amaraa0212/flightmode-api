@@ -20,6 +20,7 @@ class RbdModificationResource extends JsonResource
             'type' => $this->type,
             'timeframe_hours' => $this->timeframe_hours,
             'amount' => $this->amount,
+            'currency' => $this->currency,
             'percentage' => $this->percentage,
             'is_allowed' => $this->is_allowed,
         ];

@@ -30,6 +30,7 @@ Route::middleware('can:agency.portal')->group(function () {
     Route::get('accounts/{account}/transactions', [AccountController::class, 'transactions']);
 
     Route::post('bookings', [BookingController::class, 'store']);
+    Route::post('bookings/{booking}/issue', [BookingController::class, 'issue']);
     Route::get('passenger-lookup', [BookingController::class, 'lookup']);
     Route::get('passengers/{passenger}', [BookingController::class, 'showPassenger']);
     Route::put('passengers/{passenger}', [BookingController::class, 'updatePassenger']);

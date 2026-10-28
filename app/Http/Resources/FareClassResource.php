@@ -27,6 +27,8 @@ class FareClassResource extends JsonResource
             'is_group' => $this->is_group,
             'group_min' => $this->group_min,
             'group_max' => $this->group_max,
+            'ticket_time_limit_hours' => $this->ticket_time_limit_hours,
+            'ticket_time_limit_before_departure_hours' => $this->ticket_time_limit_before_departure_hours,
             'is_active' => $this->is_active,
             'discounts' => FareDiscountResource::collection($this->whenLoaded('discounts')),
             'fares_count' => $this->whenCounted('fares'),
