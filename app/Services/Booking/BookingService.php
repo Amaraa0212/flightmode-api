@@ -25,6 +25,7 @@ use App\Services\Agency\AccountService;
 use App\Services\Allocation\AllocationService;
 use App\Services\Inventory\InventoryService;
 use App\Support\PassengerAge;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -34,6 +35,9 @@ use Illuminate\Support\Facades\DB;
  */
 class BookingService
 {
+    /** While creating an on-hold booking: segments get their ticket numbers only when issued */
+    private bool $deferTickets = false;
+
     /** Passenger attributes copied from input as-is (after normalisation). */
     private const PASSENGER_FIELDS = [
         'first_name', 'middle_name', 'last_name', 'gender', 'date_of_birth', 'nationality', 'person_code',
@@ -56,6 +60,17 @@ class BookingService
      *              contact_phone?: ?string, passengers: array<int, array<string, mixed>>} $data
      */
     public function create(array $data, User $actor, BookingSource $source, bool $goShow = false): Booking
+    {
+        $this->deferTickets = ! empty($data['on_hold']);
+        try {
+            return $this->createBooking($data, $actor, $source, $goShow);
+        } finally {
+            $this->deferTickets = false;
+        }
+    }
+
+    /** @param array<string, mixed> $data */
+    private function createBooking(array $data, User $actor, BookingSource $source, bool $goShow): Booking
     {
         return DB::transaction(function () use ($data, $actor, $source, $goShow) {
             $allocation = isset($data['allocation_id'])
@@ -111,7 +126,15 @@ class BookingService
             }
 
             if ($waitlisted) {
+                if ($this->deferTickets) {
+                    throw BusinessRuleException::make('hold_waitlisted', 'A waitlisted booking cannot be held: book it confirmed or without hold.');
+                }
                 $booking->update(['status' => BookingStatus::Waitlisted]);
+            }
+
+            if ($this->deferTickets) {
+                // seats kept until the fare's ticket time limit; nothing is charged before the tickets are issued
+                $booking->update(['status' => BookingStatus::OnHold, 'ticketing_deadline_at' => $this->ticketingDeadline($booking)]);
             }
 
             $this->accounts->syncBooking($booking);
@@ -121,6 +144,77 @@ class BookingService
 
             return $booking->load(['passengers.segments.flight', 'passengers.infant']);
         });
+    }
+
+    /**
+     * Earliest ticket time limit of the booking's fares: each fare class gives "hours after booking" and / or
+     * "hours before departure" (the earlier wins). A fare without a TL cannot be held.
+     */
+    private function ticketingDeadline(Booking $booking): Carbon
+    {
+        $segments = PassengerSegment::query()->with(['fare.fareClass', 'flight'])
+            ->whereHas('passenger', fn ($q) => $q->where('booking_id', $booking->id))->get();
+
+        $deadlines = $segments->map(function (PassengerSegment $segment) use ($booking) {
+            $class = $segment->fare?->fareClass;
+            $limits = array_filter([
+                $class?->ticket_time_limit_hours ? $booking->created_at->copy()->addHours($class->ticket_time_limit_hours) : null,
+                $class?->ticket_time_limit_before_departure_hours !== null
+                    ? $segment->flight->departureAt()->copy()->subHours($class->ticket_time_limit_before_departure_hours) : null,
+            ]);
+
+            return $limits ? min($limits) : null;
+        })->filter();
+
+        if ($deadlines->count() < $segments->count() || $deadlines->isEmpty()) {
+            throw BusinessRuleException::make('no_time_limit', 'The fare has no ticket time limit: issue the tickets now instead of holding.');
+        }
+        $deadline = $deadlines->min();
+        if ($deadline->lte(now())) {
+            throw BusinessRuleException::make('time_limit_passed', 'The ticket time limit of this fare has already passed: issue the tickets now.');
+        }
+
+        return $deadline;
+    }
+
+    /** Issue the tickets of an on-hold booking (before its ticket time limit); an agency's account is charged now. */
+    public function issueTickets(Booking $booking, ActivityChannel $channel): Booking
+    {
+        return DB::transaction(function () use ($booking, $channel) {
+            $booking = Booking::query()->with('airline')->lockForUpdate()->findOrFail($booking->id);
+            if ($booking->status !== BookingStatus::OnHold) {
+                throw BusinessRuleException::make('not_on_hold', 'Only a booking on hold waits for its tickets.');
+            }
+            if ($booking->ticketing_deadline_at?->lte(now())) {
+                throw BusinessRuleException::make('time_limit_passed', 'The ticket time limit has passed.');
+            }
+
+            foreach (Passenger::query()->where('booking_id', $booking->id)->get() as $passenger) {
+                PassengerSegment::query()->where('passenger_id', $passenger->id)->whereNull('ticket_number')
+                    ->where('status', '!=', SegmentStatus::Cancelled->value)
+                    ->update(['ticket_number' => $this->tickets->for($booking->airline, $passenger)]);
+            }
+            $booking->update(['status' => BookingStatus::Confirmed, 'ticketing_deadline_at' => null]);
+            $this->accounts->syncBooking($booking);
+
+            $this->logger->log($channel, 'booking.ticketed', "PNR {$booking->pnr}", $booking);
+
+            return $booking->load(['passengers.segments.flight', 'passengers.infant']);
+        });
+    }
+
+    /** Cancels the on-hold bookings whose ticket time limit has passed (scheduled). Returns how many. */
+    public function cancelExpiredHolds(): int
+    {
+        $expired = Booking::query()->where('status', BookingStatus::OnHold)->where('ticketing_deadline_at', '<=', now())->get();
+        foreach ($expired as $booking) {
+            foreach ($booking->passengers()->whereNull('infant_of_passenger_id')->get() as $passenger) {
+                $this->cancelPassenger($passenger, ActivityChannel::System, 'Ticket time limit passed');
+            }
+            $booking->update(['status' => BookingStatus::Cancelled, 'ticketing_deadline_at' => null]);
+        }
+
+        return $expired->count();
     }
 
     /**
@@ -391,7 +485,7 @@ class BookingService
         ?AgencyAllocationFare $bucket, ?AgencyAllocationFare $returnBucket, ?AgencyAllocation $returnAllocation,
         ?Fare $directFare, array $row, bool $waitlisted, bool $goShow,
     ): void {
-        $ticket = $this->tickets->for($flights->first()->airline, $passenger);
+        $ticket = $this->deferTickets ? null : $this->tickets->for($flights->first()->airline, $passenger);
 
         foreach ($flights->values() as $index => $flight) {
             $isReturnAllocationFlight = $returnAllocation && $flight->id === $returnAllocation->outbound_flight_id;

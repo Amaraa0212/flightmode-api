@@ -1,6 +1,6 @@
 # API routes
 
-Generated from `php artisan route:list` — 225 routes. All under `/api/v1`, JSON, snake_case.
+Generated from `php artisan route:list` — 305 routes. All under `/api/v1`, JSON, snake_case.
 
 Permission = `can:` middleware (system admin passes everything).
 
@@ -103,6 +103,11 @@ Broadcasting (Laravel Reverb): `POST /api/broadcasting/auth` — Sanctum Bearer,
 | GET | `/api/v1/admin/allocations/{allocation}` | allocations.manage | AllocationController@show |
 | PUT|PATCH | `/api/v1/admin/allocations/{allocation}` | allocations.manage | AllocationController@update |
 | GET | `/api/v1/admin/allocations/{allocation}/passengers` | allocations.manage | AllocationController@passengers |
+| GET | `/api/v1/admin/allocations-board` | allocations.manage | AllocationController@board |
+| POST | `/api/v1/admin/allocations/move` | allocations.manage | AllocationController@move |
+| POST | `/api/v1/admin/allocations/{allocation}/chinggis-push` | allocations.manage | AllocationController@pushToChinggis |
+| GET | `/api/v1/admin/flights/{flight}/allocations-overview` | allocations.manage | AllocationController@flightOverview |
+| POST | `/api/v1/admin/flights/{flight}/allocations/distribute` | allocations.manage | AllocationController@distribute |
 | GET | `/api/v1/admin/announcements` | announcements.manage | AnnouncementController@index |
 | POST | `/api/v1/admin/announcements` | announcements.manage | AnnouncementController@store |
 | DELETE | `/api/v1/admin/announcements/{announcement}` | announcements.manage | AnnouncementController@destroy |
@@ -125,6 +130,7 @@ Broadcasting (Laravel Reverb): `POST /api/broadcasting/auth` — Sanctum Bearer,
 | DELETE | `/api/v1/admin/passenger-bans/{passenger_ban}` | bookings.manage | PassengerBanController@destroy |
 | POST | `/api/v1/admin/bookings` | bookings.manage | BookingController@store |
 | POST | `/api/v1/admin/bookings/merge` | bookings.manage | BookingController@merge |
+| POST | `/api/v1/admin/bookings/{booking}/issue` | bookings.manage | BookingController@issue |
 | GET | `/api/v1/admin/bookings/{booking}` | bookings.view | BookingController@show |
 | GET | `/api/v1/admin/charter-requests` | charters.view | CharterRequestController@index |
 | POST | `/api/v1/admin/charter-requests` | charters.manage | CharterRequestController@store |
@@ -172,6 +178,7 @@ Broadcasting (Laravel Reverb): `POST /api/broadcasting/auth` — Sanctum Bearer,
 | GET | `/api/v1/admin/issue-reports/{issueReport}` | issue_reports.view | IssueReportController@show |
 | PATCH | `/api/v1/admin/issue-reports/{issueReport}` | issue_reports.manage | IssueReportController@update |
 | GET | `/api/v1/admin/flight-board` | flights.operate | FlightOperationController@board |
+| GET | `/api/v1/admin/flight-board/calendar` | flights.operate | FlightOperationController@calendar |
 | GET | `/api/v1/admin/flight-series` | flights.manage | FlightSeriesController@index |
 | POST | `/api/v1/admin/flight-series` | flights.manage | FlightSeriesController@store |
 | DELETE | `/api/v1/admin/flight-series/{flightSeries}` | flights.manage | FlightSeriesController@destroy |
@@ -179,6 +186,8 @@ Broadcasting (Laravel Reverb): `POST /api/broadcasting/auth` — Sanctum Bearer,
 | PUT|PATCH | `/api/v1/admin/flight-series/{flightSeries}` | flights.manage | FlightSeriesController@update |
 | GET | `/api/v1/admin/flights` | flights.view | FlightController@index |
 | POST | `/api/v1/admin/flights` | flights.manage | FlightController@store |
+| POST | `/api/v1/admin/flights/bulk` | flights.manage | FlightController@storeMany |
+| GET | `/api/v1/admin/flights/latest` | flights.view | FlightController@latest |
 | DELETE | `/api/v1/admin/flights/{flight}` | flights.manage | FlightController@destroy |
 | GET | `/api/v1/admin/flights/{flight}` | flights.view | FlightController@show |
 | PUT | `/api/v1/admin/flights/{flight}` | flights.manage | FlightController@update |
@@ -208,6 +217,7 @@ Broadcasting (Laravel Reverb): `POST /api/broadcasting/auth` — Sanctum Bearer,
 | GET | `/api/v1/admin/flights/{flight}/documents/no-show` | reports.view | FlightDocumentController@noShow |
 | GET | `/api/v1/admin/flights/{flight}/documents/passengers` | reports.view | FlightDocumentController@passengers |
 | GET | `/api/v1/admin/flights/{flight}/documents/pnl` | reports.view | FlightDocumentController@pnl |
+| GET | `/api/v1/admin/flights/{flight}/documents/reconciliation` | reports.view | FlightDocumentController@reconciliation |
 | PUT | `/api/v1/admin/flights/{flight}/estimated-departure` | flights.operate | FlightOperationController@setEstimatedDeparture |
 | GET | `/api/v1/admin/flights/{flight}/fares` | flights.view | FareController@forFlight |
 | PUT | `/api/v1/admin/flights/{flight}/gate` | flights.operate | FlightOperationController@setGate |
@@ -280,6 +290,7 @@ Broadcasting (Laravel Reverb): `POST /api/broadcasting/auth` — Sanctum Bearer,
 | GET | `/api/v1/agency/allocations/{allocation}/return-options` | agency.portal | AllocationController@returnOptions |
 | GET | `/api/v1/agency/allocations/{allocation}/ssr-codes` | agency.portal | AllocationController@ssrCodes |
 | POST | `/api/v1/agency/bookings` | agency.portal | BookingController@store |
+| POST | `/api/v1/agency/bookings/{booking}/issue` | agency.portal | BookingController@issue |
 | GET | `/api/v1/agency/charter-requests` | charters.manage | CharterRequestController@index |
 | POST | `/api/v1/agency/charter-requests` | charters.manage | CharterRequestController@store |
 | GET | `/api/v1/agency/passenger-lookup` | agency.portal | BookingController@lookup |

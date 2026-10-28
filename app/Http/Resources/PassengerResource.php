@@ -15,6 +15,9 @@ class PassengerResource extends JsonResource
             'id' => $this->id,
             'booking_id' => $this->booking_id,
             'pnr' => $this->whenLoaded('booking', fn () => $this->booking->pnr),
+            // on_hold: tickets still to be issued before the ticket time limit
+            'booking_status' => $this->whenLoaded('booking', fn () => $this->booking->status->value),
+            'ticketing_deadline_at' => $this->whenLoaded('booking', fn () => $this->booking->ticketing_deadline_at?->toIso8601String()),
             'agency' => $this->whenLoaded('booking', fn () => $this->booking->relationLoaded('agency') && $this->booking->agency
                 ? ['id' => $this->booking->agency->id, 'name' => $this->booking->agency->name] : null),
             'type' => $this->type?->value,

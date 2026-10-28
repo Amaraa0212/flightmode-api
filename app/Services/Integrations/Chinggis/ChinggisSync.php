@@ -2,14 +2,17 @@
 
 namespace App\Services\Integrations\Chinggis;
 
+use App\Models\Agency;
 use App\Models\AgencyAllocation;
 use App\Models\AgencyAllocationFare;
 use App\Models\Aircraft;
 use App\Models\Flight;
+use App\Services\Allocation\AllocationService;
 
 /**
- * Keeps the Chinggis agent system in sync with the allocations of the agencies listed in
- * `services.chinggis.agency_ids` (legacy: hard-coded agent 119).
+ * Keeps the Chinggis agent system in sync with the allocations of the agencies marked "chinggis_sync"
+ * (or listed in `services.chinggis.agency_ids`, legacy: hard-coded agent 119). Each allocation keeps the
+ * result of its last push (chinggis_synced_at / chinggis_error).
  */
 class ChinggisSync
 {
@@ -17,7 +20,13 @@ class ChinggisSync
 
     public function isSyncedAgency(int $agencyId): bool
     {
-        return in_array($agencyId, (array) config('services.chinggis.agency_ids', []), true);
+        return in_array($agencyId, (array) config('services.chinggis.agency_ids', []), true)
+            || (bool) Agency::query()->whereKey($agencyId)->value('chinggis_sync');
+    }
+
+    public function isConfigured(): bool
+    {
+        return $this->client->isConfigured();
     }
 
     public function pushAircraft(Aircraft $aircraft): void
@@ -44,13 +53,14 @@ class ChinggisSync
         ]);
     }
 
-    public function pushAllocation(AgencyAllocation $allocation): void
+    /** Sends the allocation and keeps the result on it. False when the agency is not synced or the push failed. */
+    public function pushAllocation(AgencyAllocation $allocation): bool
     {
         if (! $this->isSyncedAgency($allocation->agency_id)) {
-            return;
+            return false;
         }
 
-        $this->client->post('/api/agent/schedules', ['schedules' => [$this->payload($allocation, active: true)]]);
+        return $this->record($allocation, $this->client->post('/api/agent/schedules', ['schedules' => [$this->payload($allocation, active: true)]]));
     }
 
     public function cancelAllocation(AgencyAllocation $allocation): void
@@ -62,16 +72,30 @@ class ChinggisSync
         $this->client->post('/api/agent/schedules', ['schedules' => [$this->payload($allocation, active: false)]]);
     }
 
+    /** @param array{ok: bool, status: int, body: mixed}|null $response */
+    private function record(AgencyAllocation $allocation, ?array $response): bool
+    {
+        $error = match (true) {
+            ! $this->client->isConfigured() => 'Chinggis API is not configured (CHINGGIS_AGENT_API_BASE_URL / _KEY).',
+            $response === null => 'Chinggis API did not answer.',
+            ! $response['ok'] => 'Chinggis API refused it (HTTP '.$response['status'].').',
+            default => null,
+        };
+        $allocation->forceFill([
+            'chinggis_synced_at' => $error ? $allocation->chinggis_synced_at : now(),
+            'chinggis_error' => $error,
+        ])->saveQuietly();
+
+        return $error === null;
+    }
+
     /** A flight changed: re-send every synced allocation that uses it. */
     public function flightChanged(Flight $flight): void
     {
         $ids = (array) config('services.chinggis.agency_ids', []);
-        if ($ids === []) {
-            return;
-        }
 
         AgencyAllocation::query()
-            ->whereIn('agency_id', $ids)
+            ->where(fn ($q) => $q->whereIn('agency_id', $ids)->orWhereHas('agency', fn ($a) => $a->where('chinggis_sync', true)))
             ->where(fn ($q) => $q->where('outbound_flight_id', $flight->id)->orWhere('return_flight_id', $flight->id))
             ->get()
             ->each(fn (AgencyAllocation $a) => $this->pushAllocation($a));
@@ -89,7 +113,8 @@ class ChinggisSync
             'deadline' => $allocation->deadline->toDateString(),
             'departure' => $this->flightPayload($allocation->outboundFlight),
             'arrival' => $allocation->returnFlight ? $this->flightPayload($allocation->returnFlight) : null,
-            'availability' => ['pax' => ['quota' => $allocation->seats]],
+            // a pool has no seats of its own: what it has sold and can still sell
+            'availability' => ['pax' => ['quota' => $allocation->isPool() ? $this->poolQuota($allocation) : $allocation->seats]],
             'fare_quotas' => $allocation->fares->map(fn (AgencyAllocationFare $bucket) => [
                 'id' => $bucket->id,
                 'fare_id' => $bucket->fare_id,
@@ -105,6 +130,13 @@ class ChinggisSync
                 ],
             ])->values()->all(),
         ], fn ($v) => $v !== null);
+    }
+
+    private function poolQuota(AgencyAllocation $allocation): int
+    {
+        $usage = app(AllocationService::class)->usage($allocation);
+
+        return $usage['used'] + $usage['held'] + $usage['remaining'];
     }
 
     /** @return array<string, mixed> */

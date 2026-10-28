@@ -21,6 +21,8 @@ class StoreBookingRequest extends FormRequest
             'contact_email' => ['nullable', 'email', 'max:255'],
             'contact_phone' => ['nullable', 'string', 'max:50'],
             'send_eticket' => ['boolean'],
+            // keep the seats without tickets until the fare's ticket time limit
+            'on_hold' => ['boolean'],
             'passengers' => ['required', 'array', 'min:1', 'max:50'],
         ], PassengerFields::rules('passengers.*.'));
     }

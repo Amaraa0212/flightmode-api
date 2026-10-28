@@ -102,6 +102,20 @@ class FareSettingsTest extends TestCase
             ->assertCreated()->assertJsonPath('data.rbd_code', 'M');
     }
 
+    public function test_modification_penalty_is_an_amount_with_currency_or_a_percentage(): void
+    {
+        ['rbd' => $rbd] = $this->buildFareSetup();
+        $rule = ['rbd_id' => $rbd, 'type' => 'DATE_CHANGE', 'timeframe_hours' => 48];
+
+        $this->postJson('/api/v1/admin/rbd-modifications', $rule + ['amount' => 50000, 'percentage' => 10])
+            ->assertStatus(422)->assertJsonValidationErrors(['amount', 'percentage']);
+        $this->postJson('/api/v1/admin/rbd-modifications', $rule + ['amount' => 50000])
+            ->assertStatus(422)->assertJsonValidationErrors('currency');
+
+        $this->postJson('/api/v1/admin/rbd-modifications', $rule + ['amount' => 50000, 'currency' => 'MNT'])
+            ->assertCreated()->assertJsonPath('data.currency', 'MNT')->assertJsonPath('data.percentage', null);
+    }
+
     public function test_validation_and_airline_isolation(): void
     {
         $this->postJson('/api/v1/admin/rbds', ['code' => 'm1', 'cabin_class' => 'Y', 'rank' => 1])->assertStatus(422)->assertJsonValidationErrors('code');

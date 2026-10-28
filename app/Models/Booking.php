@@ -22,6 +22,7 @@ class Booking extends Model
             'source' => BookingSource::class,
             'status' => BookingStatus::class,
             'ticket_emailed_at' => 'datetime',
+            'ticketing_deadline_at' => 'datetime',
         ];
     }
 

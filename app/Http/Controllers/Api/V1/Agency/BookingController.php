@@ -11,6 +11,7 @@ use App\Http\Resources\BookingResource;
 use App\Http\Resources\PassengerResource;
 use App\Models\AgencyAllocation;
 use App\Models\AgencyHold;
+use App\Models\Booking;
 use App\Models\Passenger;
 use App\Services\Access\AccessScope;
 use App\Services\Booking\BookingService;
@@ -61,6 +62,14 @@ class BookingController extends Controller
         }
 
         return $this->created('Booking created.', new BookingResource($booking->load('agency')));
+    }
+
+    /** Issue the tickets of a booking on hold (before its ticket time limit); the account is charged now. */
+    public function issue(Request $request, Booking $booking): JsonResponse
+    {
+        $this->access->ensureBooking($request->user(), $booking);
+
+        return $this->success('Tickets issued.', new BookingResource($this->bookings->issueTickets($booking, ActivityChannel::Agency)));
     }
 
     public function showPassenger(Request $request, Passenger $passenger): PassengerResource

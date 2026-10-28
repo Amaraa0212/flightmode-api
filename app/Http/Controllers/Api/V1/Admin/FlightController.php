@@ -3,11 +3,13 @@
 namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Enums\ActivityChannel;
+use App\Enums\FlightServiceType;
 use App\Enums\FlightStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\FlightRequest;
 use App\Http\Resources\FlightResource;
 use App\Http\Resources\SegmentResource;
+use App\Models\Airport;
 use App\Models\Flight;
 use App\Services\Access\AccessScope;
 use App\Services\ActivityLogger;
@@ -105,6 +107,83 @@ class FlightController extends Controller
         ]);
 
         return $this->created('Flight created.', new FlightResource($flight->load(['airline', 'aircraft', 'origin', 'destination'])));
+    }
+
+    /**
+     * Several flights at once: one flight's data with a local departure time and block time, on each of `dates`
+     * (local days of the origin). A date that already has this flight number is skipped and reported.
+     */
+    public function storeMany(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'airline_id' => ['nullable', 'integer', 'exists:airlines,id'],
+            'aircraft_id' => ['required', 'integer', 'exists:aircraft,id'],
+            'flight_number' => ['required', 'string', 'max:10'],
+            'origin_airport_id' => ['required', 'integer', 'exists:airports,id'],
+            'destination_airport_id' => ['required', 'integer', 'exists:airports,id', 'different:origin_airport_id'],
+            'service_type' => ['sometimes', Rule::enum(FlightServiceType::class)],
+            'departure_time' => ['required', 'date_format:H:i'],
+            'block_minutes' => ['required', 'integer', 'min:10', 'max:1440'],
+            'terminal' => ['nullable', 'string', 'max:5'],
+            'gate' => ['nullable', 'string', 'max:10'],
+            'dates' => ['required', 'array', 'min:1', 'max:120'],
+            'dates.*' => ['date_format:Y-m-d', 'distinct'],
+        ]);
+        $airlineId = $this->access->airlineIdForWrite($request->user(), $data['airline_id'] ?? null);
+        $number = strtoupper(str_replace(' ', '', $data['flight_number']));
+        $timezone = Airport::query()->whereKey($data['origin_airport_id'])->value('timezone') ?? config('app.timezone');
+
+        $created = $skipped = [];
+        DB::transaction(function () use ($data, $airlineId, $number, $timezone, $request, &$created, &$skipped) {
+            foreach (collect($data['dates'])->sort() as $date) {
+                $departure = Carbon::createFromFormat('Y-m-d H:i', "{$date} {$data['departure_time']}", $timezone)->utc();
+                $exists = Flight::query()->where('airline_id', $airlineId)->where('flight_number', $number)
+                    ->whereBetween('scheduled_departure_at', [$departure->copy()->subHours(12), $departure->copy()->addHours(12)])->exists();
+                if ($exists) {
+                    $skipped[] = $date;
+
+                    continue;
+                }
+                $created[] = Flight::create([
+                    'airline_id' => $airlineId,
+                    'aircraft_id' => $data['aircraft_id'],
+                    'flight_number' => $number,
+                    'origin_airport_id' => $data['origin_airport_id'],
+                    'destination_airport_id' => $data['destination_airport_id'],
+                    'service_type' => $data['service_type'] ?? FlightServiceType::Scheduled->value,
+                    'scheduled_departure_at' => $departure,
+                    'scheduled_arrival_at' => $departure->copy()->addMinutes($data['block_minutes']),
+                    'terminal' => $data['terminal'] ?? null,
+                    'gate' => $data['gate'] ?? null,
+                    'status' => FlightStatus::Scheduled,
+                    'created_by' => $request->user()->id,
+                ])->id;
+            }
+        });
+
+        $message = count($created).' flight(s) created.'.($skipped ? ' Already there: '.implode(', ', $skipped).'.' : '');
+
+        return $this->created($message, ['created' => $created, 'skipped' => $skipped]);
+    }
+
+    /** The latest flight with this number, to fill a new one: aircraft, route, local departure time, block time. */
+    public function latest(Request $request): JsonResponse
+    {
+        $request->validate(['flight_number' => ['required', 'string', 'max:10']]);
+        $flight = $this->access->flights(Flight::query(), $request->user())->with('origin:id,timezone')
+            ->where('flight_number', strtoupper(str_replace(' ', '', $request->string('flight_number'))))
+            ->latest('scheduled_departure_at')->first();
+
+        return response()->json(['data' => $flight ? [
+            'aircraft_id' => $flight->aircraft_id,
+            'origin_airport_id' => $flight->origin_airport_id,
+            'destination_airport_id' => $flight->destination_airport_id,
+            'service_type' => $flight->service_type?->value ?? 'scheduled',
+            'departure_time' => $flight->scheduled_departure_at->copy()->timezone($flight->origin?->timezone ?? config('app.timezone'))->format('H:i'),
+            'block_minutes' => (int) $flight->scheduled_departure_at->diffInMinutes($flight->scheduled_arrival_at),
+            'terminal' => $flight->terminal,
+            'last_date' => $flight->scheduled_departure_at->toIso8601String(),
+        ] : null]);
     }
 
     public function show(Request $request, Flight $flight): FlightResource

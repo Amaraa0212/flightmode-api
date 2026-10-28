@@ -9,6 +9,7 @@ use App\Models\Flight;
 use App\Models\Passenger;
 use App\Services\Booking\BookingService;
 use App\Services\Checkin\CheckinService;
+use App\Services\Flight\FlightOperationsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
 use PhpOffice\PhpSpreadsheet\IOFactory;
@@ -142,5 +143,51 @@ class FlightDocumentsTest extends TestCase
         $this->getJson('/api/v1/admin/reports/routes')->assertOk();
         $this->getJson('/api/v1/admin/reports/passenger-search?query=ANU')->assertOk()->assertJsonCount(1, 'data');
         $this->getJson('/api/v1/admin/dashboard')->assertOk();
+    }
+
+    public function test_pnl_reconciliation_after_departure(): void
+    {
+        $checkin = app(CheckinService::class);
+        $admin = $this->makeUser('system-admin');
+        // a counter go-show who boards and is then taken off at the gate
+        $goShow = app(BookingService::class)->create(['flight_ids' => [$this->flight->id], 'passengers' => [
+            $this->passengerPayload(['first_name' => 'Bold', 'last_name' => 'Dorj']),
+        ]], $admin, BookingSource::Admin)->passengers->first()->segments()->first();
+        $goShow->update(['is_go_show' => true]);
+        $checkin->checkIn($goShow, '5A', CheckinChannel::Dcs);
+        $checkin->board($goShow);
+        $checkin->offload($goShow, 'security', 'Late document check');
+        $checkin->board($this->checkedIn->segments()->first());
+
+        $this->actingAsRole('airline-admin');
+        $url = "/api/v1/admin/flights/{$this->flight->id}/documents/reconciliation";
+
+        // gate still open: the child who has not come yet is "not boarded", not a no-show
+        $open = $this->getJson($url)->assertOk()->json('data');
+        $this->assertFalse($open['closed']);
+        $this->assertSame(['ADT' => 0, 'CHD' => 1, 'INF' => 0, 'total' => 1], $open['summary']['not_boarded']);
+
+        $operations = app(FlightOperationsService::class);
+        $operations->closeGate($this->flight->refresh());
+        $operations->markDeparted($this->flight->refresh(), null, null, null, null);
+
+        $data = $this->getJson($url)->assertOk()->json('data');
+        $this->assertTrue($data['closed']);
+        $this->assertSame(['ADT' => 1, 'CHD' => 1, 'INF' => 1, 'total' => 2], $data['summary']['pnl']);
+        $this->assertSame(['ADT' => 1, 'CHD' => 0, 'INF' => 0, 'total' => 1], $data['summary']['go_show']);
+        $this->assertSame(['ADT' => 1, 'CHD' => 0, 'INF' => 1, 'total' => 1], $data['summary']['flown']);
+        $this->assertSame(['ADT' => 0, 'CHD' => 1, 'INF' => 0, 'total' => 1], $data['summary']['no_show']);
+        $this->assertSame(['ADT' => 1, 'CHD' => 0, 'INF' => 0, 'total' => 1], $data['summary']['offloaded']);
+        $this->assertSame(0, $data['summary']['not_boarded']['total']);
+
+        $rows = collect($data['rows'])->keyBy('name');
+        $this->assertSame('flown', $rows['BAT/ANU']['result']);
+        $this->assertSame('no_show', $rows['GAN/TOMOR']['result']);
+        $this->assertSame('offloaded', $rows['DORJ/BOLD']['result']);
+        $this->assertTrue($rows['DORJ/BOLD']['go_show']);
+        $this->assertSame('Late document check', $rows['DORJ/BOLD']['offload_reason']);
+
+        $xlsx = $this->get("{$url}?format=xlsx")->assertOk();
+        $this->assertStringContainsString('pnl-report.xlsx', $xlsx->headers->get('content-disposition'));
     }
 }

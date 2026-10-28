@@ -15,6 +15,9 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class AirlineController extends Controller
 {
+    /** What an airline's own users may change: contacts, plus the settings other screens save here. */
+    private const OWN_FIELDS = ['email', 'phone', 'address', 'logo_path', 'brand_color', 'conditions_of_carriage', 'bag_tag_layout'];
+
     public function index(Request $request): AnonymousResourceCollection
     {
         $user = $request->user();
@@ -46,7 +49,9 @@ class AirlineController extends Controller
     public function update(AirlineRequest $request, Airline $airline): JsonResponse
     {
         $this->ensureOwn($request, $airline);
-        $airline->update($request->validated());
+        // codes, name, currency and status are set by the system administrator only
+        $data = $request->user()->isSystemAdmin() ? $request->validated() : $request->safe()->only(self::OWN_FIELDS);
+        $airline->update($data);
 
         return $this->success('Airline updated.', new AirlineResource($airline));
     }
@@ -72,6 +77,10 @@ class AirlineController extends Controller
     {
         $this->ensureOwn($request, $airline);
         $data = $request->validate(['is_active' => ['required', 'boolean']]);
+        // an airline's own sales channel sells for that airline only
+        if ($agency->owner_airline_id && $agency->owner_airline_id !== $airline->id) {
+            throw new AuthorizationException("{$agency->name} is a sales channel of another airline.");
+        }
 
         $airline->agencies()->syncWithoutDetaching([$agency->id => ['is_active' => $data['is_active']]]);
 
