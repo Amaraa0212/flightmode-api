@@ -1,5 +1,8 @@
 <?php
 
+use App\Http\Middleware\CheckCrudPermission;
+use App\Http\Middleware\CheckPermission;
+use App\Http\Middleware\EnsureAllowedAirlineIp;
 use App\Http\Middleware\EnsurePartnerAccess;
 use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\RejectPartnerToken;
@@ -20,7 +23,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     // Private channels for the DCS app, authorised with the Sanctum Bearer token: POST /api/broadcasting/auth
-    ->withBroadcasting(__DIR__.'/../routes/channels.php', ['prefix' => 'api', 'middleware' => ['api', 'auth:sanctum']])
+    ->withBroadcasting(__DIR__.'/../routes/channels.php', ['prefix' => 'api', 'middleware' => ['api', 'auth:sanctum', 'airline-ip']])
     ->withMiddleware(function (Middleware $middleware): void {
         // Behind a proxy (Vercel rewrite of the admin / DCS apps, nginx): take the client IP from X-Forwarded-For,
         // so login throttling and activity logs see the user, not the proxy. TRUSTED_PROXIES="*" or a list of IPs.
@@ -32,6 +35,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'active' => EnsureUserIsActive::class,
             'partner' => EnsurePartnerAccess::class,
             'no-partner-token' => RejectPartnerToken::class,
+            'airline-ip' => EnsureAllowedAirlineIp::class,
+            'perm' => CheckPermission::class,
+            'crud' => CheckCrudPermission::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

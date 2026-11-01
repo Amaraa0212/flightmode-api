@@ -52,7 +52,7 @@ class DcsDemoSeeder extends Seeder
 
     public function run(): void
     {
-        $this->call([PermissionSeeder::class, RoleSeeder::class, ReferenceDataSeeder::class]);
+        $this->call([MenuSeeder::class, RoleSeeder::class, ReferenceDataSeeder::class]);
         mt_srand(20260929);
         // hundreds of check-ins: don't push each one to Reverb (counters just reload after a reseed)
         config(['broadcasting.default' => 'null']);

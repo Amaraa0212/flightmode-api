@@ -27,6 +27,8 @@ class FareClass extends Model
             'is_active' => 'boolean',
             'ticket_time_limit_hours' => 'integer',
             'ticket_time_limit_before_departure_hours' => 'integer',
+            'min_stay_days' => 'integer',
+            'max_stay_days' => 'integer',
         ];
     }
 

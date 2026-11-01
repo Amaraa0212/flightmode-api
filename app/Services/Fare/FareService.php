@@ -49,8 +49,7 @@ class FareService
             return;
         }
 
-        $column = $tax->bound === 'OUT' ? 'origin_airport_id' : 'destination_airport_id';
         $this->syncWhere(fn (Builder $q) => $q->where('airline_id', $tax->airline_id)
-            ->when($tax->airport_id, fn (Builder $x) => $x->where($column, $tax->airport_id)));
+            ->when($tax->airport_id, fn (Builder $x) => $x->where('origin_airport_id', $tax->airport_id)));
     }
 }

@@ -29,6 +29,8 @@ Route::middleware('can:agency.portal')->group(function () {
     Route::get('accounts', [AccountController::class, 'index']);
     Route::get('accounts/{account}/transactions', [AccountController::class, 'transactions']);
 
+    Route::get('bookings', [BookingController::class, 'index']);
+    Route::get('bookings/{booking}', [BookingController::class, 'show']);
     Route::post('bookings', [BookingController::class, 'store']);
     Route::post('bookings/{booking}/issue', [BookingController::class, 'issue']);
     Route::get('passenger-lookup', [BookingController::class, 'lookup']);
@@ -39,7 +41,7 @@ Route::middleware('can:agency.portal')->group(function () {
     Route::post('passengers/{passenger}/eticket/email', [BookingController::class, 'emailEticket']);
 });
 
-Route::middleware('can:charters.manage')->group(function () {
+Route::middleware('can:charters.create')->group(function () {
     Route::get('charter-requests', [CharterRequestController::class, 'index']);
     Route::post('charter-requests', [CharterRequestController::class, 'store']);
 });

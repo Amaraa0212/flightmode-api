@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Enums\PermissionKey;
 use App\Enums\RoleScope;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -114,14 +113,24 @@ class User extends Authenticatable
             && ! in_array('*', (array) $token->abilities, true);
     }
 
-    public function hasPermission(PermissionKey|string $key): bool
+    public function hasPermission(string $key): bool
     {
         if ($this->isSystemAdmin()) {
             return true;
         }
 
-        $key = $key instanceof PermissionKey ? $key->value : $key;
-
         return in_array($key, $this->permissionKeys(), true);
+    }
+
+    /** True when any of the keys is granted */
+    public function hasAnyPermission(string ...$keys): bool
+    {
+        return $this->isSystemAdmin() || array_intersect($keys, $this->permissionKeys()) !== [];
+    }
+
+    /** Airline back-office staff: the airline's IP restriction applies to them */
+    public function isAirlineStaff(): bool
+    {
+        return $this->scope() === RoleScope::Airline && $this->airline_id !== null;
     }
 }

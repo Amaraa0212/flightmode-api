@@ -234,4 +234,25 @@ class BookingTest extends TestCase
         $this->deleteJson("/api/v1/agency/passengers/{$passengerId}")->assertOk();
         $this->assertSame('cancelled', PassengerSegment::withTrashed()->first()->status->value);
     }
+
+    public function test_agency_finds_its_own_bookings_by_pnr_or_name(): void
+    {
+        $allocation = $this->makeAllocation($this->makeFlight());
+        $this->actingAsRole('agency-agent');
+        $pnr = $this->postJson('/api/v1/agency/bookings', ['allocation_id' => $allocation->id,
+            'passengers' => [$this->passengerPayload(['last_name' => 'Ganbold'])]])->assertCreated()->json('data.pnr');
+        $id = $this->getJson('/api/v1/agency/bookings')->assertOk()->assertJsonCount(1, 'data')->json('data.0.id');
+
+        $this->getJson('/api/v1/agency/bookings?search='.strtolower($pnr))->assertJsonPath('data.0.pnr', $pnr);
+        $this->getJson('/api/v1/agency/bookings?search=ganb')->assertJsonCount(1, 'data');
+        $this->getJson('/api/v1/agency/bookings?search=nobody')->assertJsonCount(0, 'data');
+        $this->getJson("/api/v1/agency/bookings/{$id}")->assertOk()
+            ->assertJsonPath('data.passengers.0.segments.0.flight.flight_number', 'TA101');
+
+        // another agency sees nothing of it
+        $other = Agency::create(['name' => 'Other Travel']);
+        $this->actingAsRole('agency-agent', ['agency_id' => $other->id]);
+        $this->getJson('/api/v1/agency/bookings')->assertJsonCount(0, 'data');
+        $this->getJson("/api/v1/agency/bookings/{$id}")->assertForbidden();
+    }
 }

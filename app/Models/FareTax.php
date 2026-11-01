@@ -3,23 +3,23 @@
 namespace App\Models;
 
 use App\Enums\PassengerType;
+use App\Enums\TripType;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-/** A tax line: the airport default (fare_id null) or an override saved on one fare. */
+/** A tax line: the departure airport default for OW or RT fares (fare_id null), or an override saved on one fare. */
 class FareTax extends Model
 {
-    public const BOUNDS = ['OUT', 'IN'];
-
     protected $guarded = ['id'];
 
     /** Column defaults, so a freshly created model returns them too */
-    protected $attributes = ['bound' => 'OUT', 'currency' => 'MNT', 'refundable' => true];
+    protected $attributes = ['trip_type' => 'OW', 'currency' => 'MNT', 'refundable' => true];
 
     protected function casts(): array
     {
         return [
             'passenger_type' => PassengerType::class,
+            'trip_type' => TripType::class,
             'amount' => 'decimal:2',
             'refundable' => 'boolean',
         ];

@@ -13,13 +13,15 @@ class Rbd extends Model
     protected $guarded = ['id'];
 
     /** Column defaults, so a freshly created model returns them too */
-    protected $attributes = ['is_active' => true];
+    protected $attributes = ['is_active' => true, 'is_upgrade' => false];
 
     protected function casts(): array
     {
         return [
             'cabin_class' => CabinClass::class,
             'is_active' => 'boolean',
+            'is_upgrade' => 'boolean',
+            'advance_booking_days' => 'integer',
         ];
     }
 
@@ -31,6 +33,11 @@ class Rbd extends Model
     public function parent(): BelongsTo
     {
         return $this->belongsTo(self::class, 'parent_id');
+    }
+
+    public function fareFamily(): BelongsTo
+    {
+        return $this->belongsTo(FareFamily::class);
     }
 
     public function children(): HasMany

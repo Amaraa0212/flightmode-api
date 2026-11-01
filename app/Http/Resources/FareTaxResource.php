@@ -18,7 +18,7 @@ class FareTaxResource extends JsonResource
             'tax_code' => $this->whenLoaded('taxCode', fn () => $this->taxCode->code),
             'airport_id' => $this->airport_id,
             'airport' => $this->whenLoaded('airport', fn () => $this->airport?->iata_code),
-            'bound' => $this->bound,
+            'trip_type' => $this->trip_type->value,
             'fare_id' => $this->fare_id,
             'passenger_type' => $this->passenger_type->value,
             'amount' => $this->amount,

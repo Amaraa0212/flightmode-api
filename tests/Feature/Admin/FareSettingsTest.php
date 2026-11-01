@@ -32,10 +32,13 @@ class FareSettingsTest extends TestCase
         $this->postJson("/api/v1/admin/fare-classes/{$class}/discounts", ['passenger_type' => 'INF', 'age_to' => 1, 'percentage' => 90])->assertCreated();
 
         $tax = $this->postJson('/api/v1/admin/tax-codes', ['code' => 'MN', 'name' => 'Airport fee'])->assertCreated()->json('data.id');
-        $this->postJson('/api/v1/admin/fare-taxes', ['tax_code_id' => $tax, 'airport_id' => $this->ubn->id, 'bound' => 'OUT', 'passenger_type' => 'ADT', 'amount' => 30000])->assertCreated();
-        $this->postJson('/api/v1/admin/fare-taxes', ['tax_code_id' => $tax, 'airport_id' => $this->pqc->id, 'bound' => 'IN', 'passenger_type' => 'ADT', 'amount' => 20000])->assertCreated();
-        // arriving at UBN: not charged on UBN -> PQC
-        $this->postJson('/api/v1/admin/fare-taxes', ['tax_code_id' => $tax, 'airport_id' => $this->ubn->id, 'bound' => 'IN', 'passenger_type' => 'ADT', 'amount' => 99999])->assertCreated();
+        // departure airport only, per trip type: UBN OW is charged on UBN -> PQC one way
+        $this->postJson('/api/v1/admin/fare-taxes', ['tax_code_id' => $tax, 'airport_id' => $this->ubn->id, 'trip_type' => 'OW', 'passenger_type' => 'ADT', 'amount' => 50000])->assertCreated();
+        // not charged: RT line of UBN, and PQC is the arrival airport
+        $this->postJson('/api/v1/admin/fare-taxes', ['tax_code_id' => $tax, 'airport_id' => $this->ubn->id, 'trip_type' => 'RT', 'passenger_type' => 'ADT', 'amount' => 99999])->assertCreated();
+        $this->postJson('/api/v1/admin/fare-taxes', ['tax_code_id' => $tax, 'airport_id' => $this->pqc->id, 'trip_type' => 'OW', 'passenger_type' => 'ADT', 'amount' => 20000])->assertCreated();
+        $this->postJson('/api/v1/admin/fare-taxes', ['tax_code_id' => $tax, 'airport_id' => $this->ubn->id, 'passenger_type' => 'ADT', 'amount' => 1])
+            ->assertUnprocessable()->assertJsonValidationErrors('trip_type');
 
         $fare = $this->postJson('/api/v1/admin/fares', [
             'fare_class_id' => $class, 'origin_airport_id' => $this->ubn->id, 'destination_airport_id' => $this->pqc->id,
@@ -63,13 +66,23 @@ class FareSettingsTest extends TestCase
         $this->assertSame(['fare' => '100000.00', 'tax' => '0.00'], $fare->priceFor(PassengerType::Infant));
 
         // an override on the fare replaces the UBN default of the same tax code
-        $this->postJson('/api/v1/admin/fare-taxes', ['tax_code_id' => $tax, 'fare_id' => $fareId, 'bound' => 'OUT', 'passenger_type' => 'ADT', 'amount' => 10000])->assertCreated();
+        $this->postJson('/api/v1/admin/fare-taxes', ['tax_code_id' => $tax, 'fare_id' => $fareId, 'passenger_type' => 'ADT', 'amount' => 10000])
+            ->assertCreated()->assertJsonPath('data.trip_type', 'OW');
         $fare->refresh();
         $this->assertSame('10000.00', $fare->priceFor(PassengerType::Adult)['tax']);
         $this->assertSame('10000.00', $fare->tax_amount);
 
-        $this->getJson("/api/v1/admin/fare-taxes?origin_airport_id={$this->ubn->id}&destination_airport_id={$this->pqc->id}")
-            ->assertOk()->assertJsonCount(2, 'data');
+        $this->getJson("/api/v1/admin/fare-taxes?origin_airport_id={$this->ubn->id}")->assertOk()->assertJsonCount(2, 'data');
+        $this->getJson("/api/v1/admin/fare-taxes?origin_airport_id={$this->ubn->id}&trip_type=RT")->assertOk()->assertJsonCount(1, 'data');
+
+        // a round trip fare from UBN takes the RT line
+        $rbd = Fare::query()->findOrFail($fareId)->fareClass->rbd_id;
+        $rt = $this->postJson('/api/v1/admin/fare-classes', ['rbd_id' => $rbd, 'booking_code' => 'MRT', 'status' => 'HK', 'trip_type' => 'RT'])->json('data.id');
+        $rtFare = $this->postJson('/api/v1/admin/fares', [
+            'fare_class_id' => $rt, 'origin_airport_id' => $this->ubn->id, 'destination_airport_id' => $this->pqc->id,
+            'valid_from' => today()->toDateString(), 'valid_to' => today()->addMonth()->toDateString(), 'base_amount' => 1800000,
+        ])->assertCreated()->json('data.id');
+        $this->assertSame('99999.00', Fare::query()->findOrFail($rtFare)->tax_amount);
         $this->getJson("/api/v1/admin/fare-taxes?fare_id={$fareId}")->assertOk()->assertJsonCount(1, 'data');
     }
 
@@ -149,5 +162,51 @@ class FareSettingsTest extends TestCase
         $this->assertSame('1000000.00', $segment->fare_amount);
         $this->assertSame('50000.00', $segment->tax_amount);
         $this->assertSame('M', $segment->fare_class);
+    }
+
+    public function test_fare_family_booking_class_fields_and_fare_base_stay(): void
+    {
+        $family = $this->postJson('/api/v1/admin/fare-families', ['code' => 'FLEX', 'name' => 'Flex'])->assertCreated()->json('data.id');
+
+        $rbd = $this->postJson('/api/v1/admin/rbds', [
+            'code' => 'B', 'cabin_class' => 'Y', 'rank' => 1, 'fare_family_id' => $family, 'advance_booking_days' => 14, 'is_upgrade' => true,
+        ])->assertCreated()
+            ->assertJsonPath('data.fare_family_code', 'FLEX')
+            ->assertJsonPath('data.advance_booking_days', 14)
+            ->assertJsonPath('data.is_upgrade', true)
+            ->json('data.id');
+
+        $this->getJson('/api/v1/admin/fare-families')->assertOk()->assertJsonPath('data.0.rbds', ['B']);
+
+        $this->postJson('/api/v1/admin/fare-classes', [
+            'rbd_id' => $rbd, 'booking_code' => 'BRT', 'status' => 'HK', 'trip_type' => 'RT', 'min_stay_days' => 5, 'max_stay_days' => 2,
+        ])->assertUnprocessable()->assertJsonValidationErrors('max_stay_days');
+        $this->postJson('/api/v1/admin/fare-classes', [
+            'rbd_id' => $rbd, 'booking_code' => 'BRT', 'status' => 'HK', 'trip_type' => 'RT', 'min_stay_days' => 2, 'max_stay_days' => 30,
+        ])->assertCreated()->assertJsonPath('data.min_stay_days', 2)->assertJsonPath('data.max_stay_days', 30);
+
+        // deleting the family leaves the booking class without one
+        $this->deleteJson("/api/v1/admin/fare-families/{$family}")->assertOk();
+        $this->getJson("/api/v1/admin/rbds/{$rbd}")->assertJsonPath('data.fare_family_id', null);
+    }
+
+    public function test_fare_combinations_are_saved_once_per_pair(): void
+    {
+        $rbd = $this->postJson('/api/v1/admin/rbds', ['code' => 'M', 'cabin_class' => 'Y', 'rank' => 3])->json('data.id');
+        [$a, $b, $c] = collect(['MOW', 'MRT', 'MPR'])->map(fn ($code) => $this->postJson('/api/v1/admin/fare-classes', [
+            'rbd_id' => $rbd, 'booking_code' => $code, 'status' => 'HK', 'trip_type' => 'OW',
+        ])->json('data.id'))->all();
+
+        $this->postJson('/api/v1/admin/fare-combinations', ['fare_class_id' => $a, 'combinable_fare_class_ids' => [$b, $c]])
+            ->assertCreated()->assertJsonCount(2, 'data');
+        // b + a already exists the other way round
+        $this->postJson('/api/v1/admin/fare-combinations', ['fare_class_id' => $b, 'combinable_fare_class_ids' => [$a, $c]])
+            ->assertCreated()->assertJsonCount(1, 'data');
+        $this->postJson('/api/v1/admin/fare-combinations', ['fare_class_id' => $a, 'combinable_fare_class_ids' => [$a]])
+            ->assertUnprocessable();
+
+        $this->getJson('/api/v1/admin/fare-combinations')->assertOk()->assertJsonCount(3, 'data')
+            ->assertJsonPath('data.0.fare_class.booking_code', 'MRT');
+        $this->getJson("/api/v1/admin/fare-combinations?fare_class_id={$c}")->assertOk()->assertJsonCount(2, 'data');
     }
 }

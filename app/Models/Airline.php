@@ -17,7 +17,7 @@ class Airline extends Model
 
     protected function casts(): array
     {
-        return ['is_active' => 'boolean'];
+        return ['is_active' => 'boolean', 'ip_restriction_enabled' => 'boolean'];
     }
 
     public function agencies(): BelongsToMany
@@ -33,6 +33,12 @@ class Airline extends Model
     public function flights(): HasMany
     {
         return $this->hasMany(Flight::class);
+    }
+
+    /** Addresses its back-office staff may sign in from (when ip_restriction_enabled) */
+    public function ipAddresses(): HasMany
+    {
+        return $this->hasMany(AirlineIpAddress::class);
     }
 
     public function users(): HasMany

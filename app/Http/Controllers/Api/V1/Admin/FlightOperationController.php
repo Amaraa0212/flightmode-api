@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
-use App\Enums\PermissionKey;
 use App\Enums\RoleScope;
 use App\Enums\SegmentStatus;
 use App\Http\Controllers\Controller;
@@ -162,13 +161,13 @@ class FlightOperationController extends Controller
             'reason' => ['required_if:action,cancel', 'nullable', 'string', 'max:1000'],
         ]);
 
-        // closing is OCC's, cancelling / reopening the airline administrator's; opening check-in stays with flights.operate
+        // closing is OCC's, cancelling / reopening the airline administrator's; opening check-in stays with flight_manager.update
         $permission = match ($data['action']) {
-            'close_checkin', 'close_gate', 'depart' => PermissionKey::FlightsClose,
-            'cancel', 'reopen' => PermissionKey::FlightsCancel,
+            'close_checkin', 'close_gate', 'depart' => 'flight_manager.close',
+            'cancel', 'reopen' => 'flight_manager.cancel',
             default => null,
         };
-        if ($permission && ! $request->user()->can($permission->value)) {
+        if ($permission && ! $request->user()->hasPermission($permission)) {
             throw new AuthorizationException('You do not have permission for this.');
         }
 

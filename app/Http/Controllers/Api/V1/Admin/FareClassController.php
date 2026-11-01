@@ -60,6 +60,9 @@ class FareClassController extends AirlineCrudController
             'waitlist' => ['boolean'],
             'is_visible' => ['boolean'],
             'trip_type' => [$required, Rule::enum(TripType::class)],
+            // stay in days between departure and return (null = no limit)
+            'min_stay_days' => ['nullable', 'integer', 'min:0', 'max:365'],
+            'max_stay_days' => ['nullable', 'integer', 'min:0', 'max:365', Rule::when($request->filled('min_stay_days'), 'gte:min_stay_days')],
             'rule' => ['nullable', 'string'],
             'is_group' => ['boolean'],
             'group_min' => ['nullable', 'required_if_accepted:is_group', 'integer', 'min:1'],
@@ -90,7 +93,7 @@ class FareClassController extends AirlineCrudController
                 'This fare class is used by fares and cannot be deleted. Set it inactive instead.');
         }
 
-        $class->delete();
+        $class->delete(); // its combinations cascade
 
         return $this->deleted('Fare class deleted.');
     }
