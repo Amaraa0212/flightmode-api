@@ -15,7 +15,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Services\Allocation\AllocationService;
 use App\Services\Seat\SeatMapGenerator;
-use Database\Seeders\PermissionSeeder;
+use Database\Seeders\MenuSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Support\Carbon;
 use Laravel\Sanctum\Sanctum;
@@ -35,7 +35,7 @@ trait BuildsFlightData
 
     protected function buildWorld(): void
     {
-        $this->seed([PermissionSeeder::class, RoleSeeder::class]);
+        $this->seed([MenuSeeder::class, RoleSeeder::class]);
 
         $mn = Country::create(['name' => 'Mongolia', 'alpha2' => 'MN', 'alpha3' => 'MNG']);
         $vn = Country::create(['name' => 'Viet Nam', 'alpha2' => 'VN', 'alpha3' => 'VNM']);

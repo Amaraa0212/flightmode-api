@@ -23,6 +23,8 @@ class FareClassResource extends JsonResource
             'waitlist' => $this->waitlist,
             'is_visible' => $this->is_visible,
             'trip_type' => $this->trip_type->value,
+            'min_stay_days' => $this->min_stay_days,
+            'max_stay_days' => $this->max_stay_days,
             'rule' => $this->rule,
             'is_group' => $this->is_group,
             'group_min' => $this->group_min,

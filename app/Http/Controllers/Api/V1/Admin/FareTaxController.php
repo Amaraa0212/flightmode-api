@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Enums\PassengerType;
+use App\Enums\TripType;
 use App\Http\Resources\FareTaxResource;
+use App\Models\Fare;
 use App\Models\FareTax;
 use App\Services\Access\AccessScope;
 use App\Services\Fare\FareService;
@@ -14,8 +16,8 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 /**
- * Airport taxes (fare_id null): OUT lines are charged on fares departing the airport, IN lines on fares arriving there.
- * A line with fare_id overrides the default of the same tax code for that fare only.
+ * Airport taxes (fare_id null): charged on every fare departing the airport whose trip type (OW / RT) matches.
+ * A line with fare_id overrides the default of the same tax code for that fare only (and takes the fare's trip type).
  */
 class FareTaxController extends AirlineCrudController
 {
@@ -44,15 +46,13 @@ class FareTaxController extends AirlineCrudController
         return ['taxCode:id,code', 'airport:id,iata_code'];
     }
 
-    /** `origin_airport_id` + `destination_airport_id`: the default taxes of that route; `fare_id`: the overrides of a fare. */
+    /** `origin_airport_id`: the default taxes of fares departing it; `fare_id`: the overrides of a fare. */
     protected function filter(Builder $query, Request $request): void
     {
         $query->when($request->filled('fare_id'), fn ($q) => $q->where('fare_id', $request->integer('fare_id')))
             ->when(! $request->filled('fare_id') && $request->filled('origin_airport_id'), fn ($q) => $q->whereNull('fare_id')
-                ->where(fn ($r) => $r
-                    ->where(fn ($x) => $x->where('airport_id', $request->integer('origin_airport_id'))->where('bound', 'OUT'))
-                    ->when($request->filled('destination_airport_id'), fn ($r) => $r
-                        ->orWhere(fn ($x) => $x->where('airport_id', $request->integer('destination_airport_id'))->where('bound', 'IN')))))
+                ->where('airport_id', $request->integer('origin_airport_id')))
+            ->when($request->filled('trip_type'), fn ($q) => $q->where('trip_type', $request->string('trip_type')))
             ->when($request->filled('airport_id'), fn ($q) => $q->where('airport_id', $request->integer('airport_id')))
             ->when($request->filled('passenger_type'), fn ($q) => $q->where('passenger_type', $request->string('passenger_type')));
     }
@@ -66,7 +66,8 @@ class FareTaxController extends AirlineCrudController
             'tax_code_id' => [$required, 'integer', Rule::exists('tax_codes', 'id')->where('airline_id', $airlineId)],
             'fare_id' => ['nullable', 'integer', Rule::exists('fares', 'id')->where('airline_id', $airlineId)],
             'airport_id' => ['nullable', 'required_without:fare_id', 'integer', 'exists:airports,id'],
-            'bound' => [$required, Rule::in(FareTax::BOUNDS)],
+            // ignored on a fare override: it takes the fare's trip type
+            'trip_type' => [Rule::requiredIf(! $model && ! $request->filled('fare_id')), Rule::enum(TripType::class)],
             'passenger_type' => [$required, Rule::enum(PassengerType::class)],
             'amount' => [$required, 'numeric', 'min:0'],
             'currency' => ['nullable', 'string', 'size:3'],
@@ -96,6 +97,10 @@ class FareTaxController extends AirlineCrudController
 
     protected function afterSave(Model $model, array $data): void
     {
+        if ($model->fare_id) {
+            $model->forceFill(['trip_type' => Fare::query()->whereKey($model->fare_id)->value('trip_type')])->saveQuietly();
+        }
+
         $this->fares->syncForTax($model);
     }
 }

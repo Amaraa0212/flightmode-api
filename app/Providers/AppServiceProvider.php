@@ -2,7 +2,6 @@
 
 namespace App\Providers;
 
-use App\Enums\PermissionKey;
 use App\Models\User;
 use App\Services\Checkin\PassengerScreening;
 use Illuminate\Support\Facades\Gate;
@@ -18,9 +17,9 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        // `can:<permission.key>` checks the user's role permissions. System admins pass everything.
+        // `can:<menu>.<action>` checks the user's role permissions (menus / permissions tables). System admins pass everything.
         Gate::before(function (User $user, string $ability) {
-            if (PermissionKey::tryFrom($ability) === null) {
+            if (! preg_match('/^[a-z_]+\.[a-z_]+$/', $ability)) {
                 return null;
             }
 

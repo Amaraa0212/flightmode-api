@@ -32,7 +32,7 @@ class DemoUsersSeeder extends Seeder
 
     public function run(): void
     {
-        $this->call([PermissionSeeder::class, RoleSeeder::class]);
+        $this->call([MenuSeeder::class, RoleSeeder::class]);
 
         $ubn = Airport::query()->where('iata_code', 'UBN')->first();
         $airlines = Airline::query()->whereIn('iata_code', ['OM', 'MR'])->orderBy('iata_code', 'desc')->get();

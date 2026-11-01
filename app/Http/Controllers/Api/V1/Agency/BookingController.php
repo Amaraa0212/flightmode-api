@@ -19,6 +19,7 @@ use App\Services\Booking\PassengerImportService;
 use App\Services\Documents\ETicketService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Validation\ValidationException;
 
@@ -33,6 +34,35 @@ class BookingController extends Controller
         private readonly BookingService $bookings,
         private readonly ETicketService $etickets,
     ) {}
+
+    /** The agency's bookings, newest first. search: PNR, passenger name, document or ticket number. */
+    public function index(Request $request): AnonymousResourceCollection
+    {
+        $term = trim((string) $request->input('search'));
+
+        $bookings = $this->access->bookings(Booking::query(), $request->user())
+            ->with(['passengers.segments.flight.origin', 'passengers.segments.flight.destination'])
+            ->when($term !== '', fn ($q) => $q->where(fn ($x) => $x
+                ->where('pnr', strtoupper($term))
+                ->orWhereHas('passengers', fn ($p) => $p
+                    ->where('last_name', 'like', "%{$term}%")
+                    ->orWhere('first_name', 'like', "%{$term}%")
+                    ->orWhere('document_number', strtoupper($term)))
+                ->orWhereHas('passengers.segments', fn ($s) => $s->where('ticket_number', $term))))
+            ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
+            ->latest('id')
+            ->paginate(min($request->integer('per_page', 20), 100));
+
+        return BookingResource::collection($bookings);
+    }
+
+    public function show(Request $request, Booking $booking): BookingResource
+    {
+        $this->access->ensureBooking($request->user(), $booking);
+
+        return new BookingResource($booking->load(['creator', 'passengers.infant',
+            'passengers.segments.flight.origin', 'passengers.segments.flight.destination']));
+    }
 
     public function store(StoreBookingRequest $request): JsonResponse
     {

@@ -92,7 +92,7 @@ class Fare extends Model
     }
 
     /**
-     * Taxes charged for a passenger type: the departure airport's OUT and the arrival airport's IN defaults,
+     * Taxes charged for a passenger type: the departure airport's defaults for this fare's trip type (OW / RT),
      * with a line saved on this fare replacing the default of the same tax code.
      *
      * @return Collection<int, FareTax>
@@ -103,9 +103,9 @@ class Fare extends Model
             ->where('airline_id', $this->airline_id)
             ->where('passenger_type', $type)
             ->where(fn (Builder $q) => $q->where('fare_id', $this->id)
-                ->orWhere(fn (Builder $d) => $d->whereNull('fare_id')->where(fn (Builder $a) => $a
-                    ->where(fn (Builder $x) => $x->where('airport_id', $this->origin_airport_id)->where('bound', 'OUT'))
-                    ->orWhere(fn (Builder $x) => $x->where('airport_id', $this->destination_airport_id)->where('bound', 'IN')))))
+                ->orWhere(fn (Builder $d) => $d->whereNull('fare_id')
+                    ->where('airport_id', $this->origin_airport_id)
+                    ->where('trip_type', $this->trip_type)))
             ->get();
 
         $overridden = $lines->whereNotNull('fare_id')->pluck('tax_code_id')->all();

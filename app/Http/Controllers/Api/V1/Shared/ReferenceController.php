@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Api\V1\Shared;
 
-use App\Enums\PermissionKey;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AirportResource;
 use App\Http\Resources\CountryResource;
@@ -46,7 +45,7 @@ class ReferenceController extends Controller
         $enums = [];
         foreach (glob(app_path('Enums/*.php')) as $file) {
             $class = 'App\\Enums\\'.basename($file, '.php');
-            if ($class === PermissionKey::class || ! enum_exists($class)) {
+            if (! enum_exists($class)) {
                 continue;
             }
             $enums[str(class_basename($class))->snake()->value()] = array_map(fn ($c) => $c->value, $class::cases());

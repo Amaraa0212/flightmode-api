@@ -133,12 +133,14 @@ class UserController extends Controller
     {
         $actor = $request->user();
         $roles = Role::query()->orderBy('name')
-            ->when(! $actor->isSystemAdmin(), fn ($q) => $q->where('scope', '!=', RoleScope::Admin->value))
+            ->when(! $actor->isSystemAdmin(), fn ($q) => $q->where('scope', '!=', RoleScope::Admin->value)
+                // an airline's own roles only for that airline
+                ->where(fn ($x) => $x->whereNull('airline_id')->orWhere('airline_id', $actor->airline_id ?? 0)))
             ->when(! $actor->isSystemAdmin() && ! $actor->airline_id, fn ($q) => $q->where('scope', RoleScope::Agency->value))
-            ->get(['id', 'name', 'slug', 'scope']);
+            ->get(['id', 'name', 'slug', 'scope', 'airline_id']);
 
         return response()->json(['data' => $roles->map(fn (Role $r) => [
-            'id' => $r->id, 'name' => $r->name, 'slug' => $r->slug, 'scope' => $r->scope->value,
+            'id' => $r->id, 'name' => $r->name, 'slug' => $r->slug, 'scope' => $r->scope->value, 'airline_id' => $r->airline_id,
         ])]);
     }
 
@@ -196,6 +198,9 @@ class UserController extends Controller
             }
         }
 
+        if ($role->airline_id !== null && (int) ($data['airline_id'] ?? 0) !== (int) $role->airline_id) {
+            throw ValidationException::withMessages(['role_id' => 'This role belongs to another airline.']);
+        }
         if ($role->scope === RoleScope::Agency && empty($data['agency_id'])) {
             throw ValidationException::withMessages(['agency_id' => 'Agency users need an agency.']);
         }

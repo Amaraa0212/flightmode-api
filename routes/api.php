@@ -14,7 +14,7 @@ Route::prefix('v1')->group(function () {
     Route::prefix('checkin')->group(base_path('routes/api/v1/checkin.php'));
     Route::prefix('partner')->group(base_path('routes/api/v1/partner.php'));
 
-    Route::middleware(['auth:sanctum', 'active', 'no-partner-token'])->group(function () {
+    Route::middleware(['auth:sanctum', 'active', 'no-partner-token', 'airline-ip'])->group(function () {
         Route::group([], base_path('routes/api/v1/shared.php'));
         Route::prefix('admin')->group(base_path('routes/api/v1/admin.php'));
         Route::prefix('agency')->group(base_path('routes/api/v1/agency.php'));

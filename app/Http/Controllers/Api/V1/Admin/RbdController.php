@@ -32,13 +32,14 @@ class RbdController extends AirlineCrudController
 
     protected function with(): array
     {
-        return ['parent:id,code', 'creator:id,name'];
+        return ['parent:id,code', 'fareFamily:id,code,name', 'creator:id,name'];
     }
 
     protected function filter(Builder $query, Request $request): void
     {
         $query->withCount(['fareClasses', 'children'])
             ->when($request->filled('cabin_class'), fn ($q) => $q->where('cabin_class', $request->string('cabin_class')))
+            ->when($request->filled('fare_family_id'), fn ($q) => $q->where('fare_family_id', $request->integer('fare_family_id')))
             ->when($request->filled('is_active'), fn ($q) => $q->where('is_active', $request->boolean('is_active')));
     }
 
@@ -54,6 +55,9 @@ class RbdController extends AirlineCrudController
             'rank' => [$required, 'integer', 'min:0', 'max:999'],
             'parent_id' => ['nullable', 'integer', Rule::exists('rbds', 'id')->where('airline_id', $airlineId),
                 Rule::notIn(array_filter([$model?->getKey()]))],
+            'fare_family_id' => ['nullable', 'integer', Rule::exists('fare_families', 'id')->where('airline_id', $airlineId)],
+            'advance_booking_days' => ['nullable', 'integer', 'min:0', 'max:365'],
+            'is_upgrade' => ['boolean'],
             'description' => ['nullable', 'string', 'max:255'],
             'is_active' => ['boolean'],
         ];

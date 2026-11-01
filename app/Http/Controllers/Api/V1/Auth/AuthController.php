@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api\V1\Auth;
 
 use App\Enums\ActivityChannel;
-use App\Enums\PermissionKey;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\ChangePasswordRequest;
 use App\Http\Requests\Auth\LoginRequest;
@@ -12,7 +11,10 @@ use App\Http\Requests\Auth\TwoFactorCodeRequest;
 use App\Http\Requests\Auth\TwoFactorDisableRequest;
 use App\Http\Requests\Auth\TwoFactorSetupRequest;
 use App\Http\Resources\UserResource;
+use App\Models\Permission;
 use App\Models\User;
+use App\Services\Access\AirlineIpAccess;
+use App\Services\Access\MenuTree;
 use App\Services\Access\TwoFactor;
 use App\Services\ActivityLogger;
 use Illuminate\Contracts\Encryption\DecryptException;
@@ -30,6 +32,8 @@ class AuthController extends Controller
     public function __construct(
         private readonly TwoFactor $twoFactor,
         private readonly ActivityLogger $logger,
+        private readonly AirlineIpAccess $ipAccess,
+        private readonly MenuTree $menus,
     ) {}
 
     /** Issue a Bearer token for the back office, agency portal, DCS and gate app. */
@@ -48,6 +52,10 @@ class AuthController extends Controller
             $this->audit($user, 'auth.login_blocked', 'Disabled account');
 
             return response()->json(['message' => 'Your account is disabled.', 'code' => 'account_disabled'], 403);
+        }
+
+        if ($blocked = $this->blockedByIp($user, $request->ip())) {
+            return $blocked;
         }
 
         // Google Authenticator on: no token yet, the client asks for the 6-digit code
@@ -171,6 +179,10 @@ class AuthController extends Controller
             return response()->json(['message' => 'Your account is disabled.', 'code' => 'account_disabled'], 403);
         }
 
+        if ($blocked = $this->blockedByIp($user, request()->ip())) {
+            return $blocked;
+        }
+
         $user->forceFill(['last_login_at' => now()])->save();
         $token = $user->createToken($deviceName, ['*'])->plainTextToken;
         $this->audit($user, 'auth.login', 'Signed in ('.$deviceName.')', ['device_name' => $deviceName, 'two_factor' => $user->hasTwoFactor()]);
@@ -180,6 +192,17 @@ class AuthController extends Controller
             'token_type' => 'Bearer',
             'user' => $this->profile($user),
         ]);
+    }
+
+    /** Airline IP restriction: no token outside the airline's registered networks */
+    private function blockedByIp(User $user, ?string $ip): ?JsonResponse
+    {
+        if ($this->ipAccess->allows($user, $ip)) {
+            return null;
+        }
+        $this->ipAccess->logBlocked($user, $ip);
+
+        return response()->json(['message' => AirlineIpAccess::MESSAGE, 'code' => 'ip_not_allowed'], 403);
     }
 
     private function checkPassword(User $user, string $password): void
@@ -230,8 +253,9 @@ class AuthController extends Controller
 
         return (new UserResource($user))->resolve() + [
             'permissions' => $user->isSystemAdmin()
-                ? array_map(fn ($p) => $p->value, PermissionKey::cases())
+                ? Permission::query()->orderBy('key')->pluck('key')->all()
                 : $user->permissionKeys(),
+            'menus' => $this->menus->forUser($user),
             'is_system_admin' => $user->isSystemAdmin(),
             'two_factor_enabled' => $user->hasTwoFactor(),
         ];
