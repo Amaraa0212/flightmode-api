@@ -15,6 +15,11 @@ return [
         'pnr_length' => 6,
     ],
 
+    'fares' => [
+        // RT fare: the RT airport taxes of both ends are added, and this % of the sum is charged.
+        'round_trip_tax_percent' => (float) env('FLIGHTMODE_RT_TAX_PERCENT', 70),
+    ],
+
     'checkin' => [
         // Boarding starts this many minutes before departure (printed on the boarding pass).
         'boarding_minutes_before_departure' => 30,

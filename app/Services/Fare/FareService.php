@@ -3,6 +3,7 @@
 namespace App\Services\Fare;
 
 use App\Enums\PassengerType;
+use App\Enums\TripType;
 use App\Models\Fare;
 use App\Models\FareTax;
 use Illuminate\Database\Eloquent\Builder;
@@ -49,7 +50,11 @@ class FareService
             return;
         }
 
+        // OW lines: fares departing the airport; RT lines: RT fares starting or ending there
         $this->syncWhere(fn (Builder $q) => $q->where('airline_id', $tax->airline_id)
-            ->when($tax->airport_id, fn (Builder $x) => $x->where('origin_airport_id', $tax->airport_id)));
+            ->when($tax->airport_id, fn (Builder $x) => $tax->trip_type === TripType::RoundTrip
+                ? $x->where('trip_type', TripType::RoundTrip)->where(fn ($a) => $a
+                    ->where('origin_airport_id', $tax->airport_id)->orWhere('destination_airport_id', $tax->airport_id))
+                : $x->where('origin_airport_id', $tax->airport_id)));
     }
 }

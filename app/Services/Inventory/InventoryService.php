@@ -85,7 +85,8 @@ class InventoryService
             ];
         }
 
-        $rbds = $this->rbdRows($flight, collect($cabins)->keyBy('cabin_class'), $sold['by_cabin'], $controlled);
+        // fixed allocations sell from their own block: their sales do not use booking class limits
+        $rbds = $this->rbdRows($flight, collect($cabins)->keyBy('cabin_class'), $sold['by_rbd'], $controlled);
 
         return [
             'is_controlled' => $controlled,
@@ -322,15 +323,18 @@ class InventoryService
     {
         $rows = PassengerSegment::query()
             ->join('passengers', 'passengers.id', '=', 'passenger_segments.passenger_id')
+            ->join('bookings', 'bookings.id', '=', 'passengers.booking_id')
+            ->leftJoin('agency_allocations', 'agency_allocations.id', '=', 'bookings.agency_allocation_id')
             ->whereNull('passengers.deleted_at')
             ->where('passenger_segments.flight_id', $flight->id)
             ->whereNotIn('passenger_segments.status', [SegmentStatus::Cancelled->value, SegmentStatus::Waitlisted->value])
             ->when($exceptPassengerId, fn ($q) => $q->where('passenger_segments.passenger_id', '!=', $exceptPassengerId))
-            ->selectRaw('passenger_segments.cabin_class, passenger_segments.fare_class, passengers.infant_of_passenger_id is not null as is_infant, count(*) as total')
-            ->groupBy('passenger_segments.cabin_class', 'passenger_segments.fare_class', 'is_infant')
+            ->selectRaw('passenger_segments.cabin_class, passenger_segments.fare_class, passengers.infant_of_passenger_id is not null as is_infant, '
+                ."coalesce(agency_allocations.mode = 'fixed', 0) as is_fixed, count(*) as total")
+            ->groupBy('passenger_segments.cabin_class', 'passenger_segments.fare_class', 'is_infant', 'is_fixed')
             ->get();
 
-        $byCabin = $infants = [];
+        $byCabin = $byRbd = $infants = [];
         foreach ($rows as $row) {
             $cabin = $row->cabin_class instanceof CabinClass ? $row->cabin_class->value : (string) $row->cabin_class;
             if ($row->is_infant) {
@@ -340,9 +344,12 @@ class InventoryService
             }
             $key = (string) ($row->fare_class ?? '');
             $byCabin[$cabin][$key] = ($byCabin[$cabin][$key] ?? 0) + (int) $row->total;
+            if (! $row->is_fixed) {
+                $byRbd[$cabin][$key] = ($byRbd[$cabin][$key] ?? 0) + (int) $row->total;
+            }
         }
 
-        return ['by_cabin' => $byCabin, 'infants' => $infants];
+        return ['by_cabin' => $byCabin, 'by_rbd' => $byRbd, 'infants' => $infants];
     }
 
     /** @return array<int, array<string, mixed>> agency allocation seats per cabin on this flight */
@@ -376,6 +383,8 @@ class InventoryService
                     'return_flight_id' => $allocation->return_flight_id,
                     'deadline' => $allocation->deadline?->toDateString(),
                     'uses_fare_quotas' => $allocation->uses_fare_quotas,
+                    'uses_published_fares' => $allocation->uses_published_fares,
+                    'released_seats' => $allocation->released_seats,
                 ];
             }
         }

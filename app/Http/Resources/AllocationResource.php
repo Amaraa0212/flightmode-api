@@ -3,6 +3,7 @@
 namespace App\Http\Resources;
 
 use App\Models\AgencyAllocation;
+use App\Services\Access\AccessScope;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -42,6 +43,10 @@ class AllocationResource extends JsonResource
             'seats' => $this->seats,
             'deadline' => $this->deadline->toDateString(),
             'uses_fare_quotas' => $this->uses_fare_quotas,
+            'uses_published_fares' => $this->uses_published_fares,
+            // unsold fixed seats given back to the flight when the names deadline passed
+            'released_at' => $this->released_at?->toIso8601String(),
+            'released_seats' => $this->released_seats,
             'is_waitlist' => $this->is_waitlist,
             'cabins' => $this->whenLoaded('cabins', fn () => $this->cabins->mapWithKeys(fn ($c) => [$c->cabin_class->value => $c->seats])),
             'fares' => $this->whenLoaded('fares', fn () => $this->fares->map(fn ($f) => [
@@ -59,6 +64,8 @@ class AllocationResource extends JsonResource
                 'is_manual' => $f->isManual(),
             ])),
             'usage' => $this->when($this->usage !== null, fn () => $this->usage),
+            // agency portal: what the airline lets the agency do (Agents permission)
+            'rights' => $this->when((bool) $request->user()?->agency_id, fn () => app(AccessScope::class)->agencyRights($this->resource)),
             // departure / arrival / number / route changes of its flights since the allocation was given (agency portal)
             'schedule_changes' => $this->when($this->scheduleChanges !== null, fn () => $this->scheduleChanges),
             // last push to the Chinggis agent API (agencies with chinggis_sync)

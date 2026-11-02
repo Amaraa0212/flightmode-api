@@ -153,6 +153,7 @@ class BookingController extends Controller
     public function import(Request $request, AgencyAllocation $allocation, PassengerImportService $importer): JsonResponse
     {
         $this->access->ensureAllocation($request->user(), $allocation);
+        $this->access->ensureAgencyRight($request->user(), $allocation, 'import_passengers');
         $request->validate([
             'file' => ['required', 'file', 'mimes:xlsx,xls,csv', 'max:5120'],
             'replace_existing' => ['boolean'],

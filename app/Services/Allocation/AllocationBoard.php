@@ -6,6 +6,7 @@ use App\Enums\CabinClass;
 use App\Exceptions\BusinessRuleException;
 use App\Models\AgencyAllocation;
 use App\Models\Flight;
+use App\Models\FlightSeries;
 use App\Models\User;
 use App\Services\Access\AccessScope;
 use Illuminate\Support\Carbon;
@@ -65,6 +66,8 @@ class AllocationBoard
                 'remaining' => $usage['remaining'],
                 'deadline' => $a->deadline->toDateString(),
                 'is_waitlist' => $a->is_waitlist,
+                'uses_published_fares' => $a->uses_published_fares,
+                'released_seats' => $a->released_seats,
                 'outbound_flight_id' => $a->outbound_flight_id,
                 'return_flight_id' => $a->return_flight_id,
             ];
@@ -80,6 +83,7 @@ class AllocationBoard
                 'scheduled_departure_at' => $flight->scheduled_departure_at->toIso8601String(),
                 'status' => $flight->status->value,
                 'service_type' => $flight->service_type?->value ?? 'scheduled',
+                'flight_series_id' => $flight->flight_series_id,
             ],
             'capacity' => $capacity,
             'cabins' => $flight->aircraft?->cabins->map(fn ($c) => [
@@ -140,11 +144,58 @@ class AllocationBoard
                     'deadline' => $row['deadline'] ?? $allocation?->deadline?->toDateString() ?? $deadline
                         ?? $flight->departureAt()->subDay()->toDateString(),
                     'is_waitlist' => $allocation?->is_waitlist ?? false,
+                    'uses_published_fares' => (bool) ($row['uses_published_fares'] ?? $allocation?->uses_published_fares ?? false),
                     // fixed without cabins: all in economy; pool without cabins: every cabin of the aircraft
                     'cabins' => $row['cabins'] ?? (($row['mode'] ?? AgencyAllocation::FIXED) === AgencyAllocation::POOL ? [] : ['Y' => (int) $row['seats']]),
                 ], $allocation));
             }
         });
+    }
+
+    /**
+     * The same distribution on every flight of a series between two dates: each row updates the agency's allocation on
+     * a flight or creates it (other agencies are left as they are). A flight that cannot take it is skipped and reported.
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array{flights: int, saved: int, failed: array<int, array{flight_id: int, flight_number: string, date: string, message: string}>}
+     */
+    public function distributeSeries(FlightSeries $series, string $from, string $to, array $rows, int $deadlineDaysBefore): array
+    {
+        $flights = $series->flights()
+            ->whereBetween('scheduled_departure_at', [Carbon::parse($from)->subDay(), Carbon::parse($to)->addDays(2)])
+            ->whereNotIn('status', ['departed', 'cancelled'])
+            ->where('scheduled_departure_at', '>', now())
+            ->with('origin')
+            ->orderBy('scheduled_departure_at')
+            ->get()
+            // local departure date inside the range
+            ->filter(fn (Flight $f) => ($day = $this->localDay($f)) >= $from && $day <= $to)
+            ->values();
+
+        $saved = 0;
+        $failed = [];
+        foreach ($flights as $flight) {
+            $existing = AgencyAllocation::query()->where('outbound_flight_id', $flight->id)
+                ->whereIn('agency_id', array_column($rows, 'agency_id'))->pluck('id', 'agency_id');
+            $deadline = Carbon::parse($this->localDay($flight))->subDays($deadlineDaysBefore)->toDateString();
+
+            try {
+                $this->distribute($flight, array_map(fn (array $row) => $row + [
+                    'allocation_id' => $existing[$row['agency_id']] ?? null,
+                    'deadline' => $deadline,
+                ], $rows), [], $deadline);
+                $saved++;
+            } catch (BusinessRuleException $e) {
+                $failed[] = ['flight_id' => $flight->id, 'flight_number' => $flight->flight_number, 'date' => $this->localDay($flight), 'message' => $e->getMessage()];
+            }
+        }
+
+        return ['flights' => $flights->count(), 'saved' => $saved, 'failed' => $failed];
+    }
+
+    private function localDay(Flight $flight): string
+    {
+        return $flight->scheduled_departure_at->copy()->timezone($flight->origin?->timezone ?: config('flightmode.timezone'))->toDateString();
     }
 
     /** Moves unsold seats of one cabin from a fixed allocation to another on the same flight. */
@@ -180,6 +231,8 @@ class AllocationBoard
                 'seats' => $a->seats + $delta,
                 'deadline' => $a->deadline->toDateString(),
                 'is_waitlist' => $a->is_waitlist,
+                'uses_published_fares' => $a->uses_published_fares,
+                'released_seats' => $a->released_seats,
                 'cabins' => $cabins($a, $delta),
             ];
 

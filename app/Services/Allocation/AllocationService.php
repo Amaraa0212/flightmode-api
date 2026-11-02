@@ -29,7 +29,7 @@ class AllocationService
 
     /**
      * @param array{airline_id: int, agency_id: int, outbound_flight_id: int, return_flight_id?: ?int, mode?: string, seats: int, deadline: string,
-     *              is_waitlist?: bool, cabins: array<string, int>, fares?: array<int, array<string, mixed>>} $data
+     *              is_waitlist?: bool, uses_published_fares?: bool, cabins: array<string, int>, fares?: array<int, array<string, mixed>>} $data
      */
     public function save(array $data, ?AgencyAllocation $allocation = null): AgencyAllocation
     {
@@ -99,6 +99,12 @@ class AllocationService
                 throw BusinessRuleException::make('below_used', 'Seats cannot be lower than the passengers already booked.');
             }
 
+            $published = (bool) ($data['uses_published_fares'] ?? $allocation?->uses_published_fares ?? false);
+            if ($published) {
+                // published fares replace the fare buckets
+                $data['fares'] = [];
+            }
+
             // an update without "fares" keeps the fare buckets it has
             $syncFares = array_key_exists('fares', $data) || ! $allocation?->exists;
 
@@ -112,6 +118,7 @@ class AllocationService
                 'seats' => $data['seats'],
                 'deadline' => $data['deadline'],
                 'is_waitlist' => $data['is_waitlist'] ?? false,
+                'uses_published_fares' => $published,
             ])->fill($syncFares ? ['uses_fare_quotas' => ! empty($data['fares'])] : [])->save();
 
             $allocation->cabins()->delete();
@@ -141,6 +148,48 @@ class AllocationService
 
         $this->chinggis->cancelAllocation($allocation);
         $allocation->delete();
+    }
+
+    /**
+     * Fixed allocations whose names deadline has passed give their unsold seats back to the flight: the cabins and the
+     * total shrink to what is sold, so the pool agencies and direct sales can sell the rest. Returns the allocations released.
+     */
+    public function releaseUnsold(): int
+    {
+        $due = AgencyAllocation::query()
+            ->where('mode', AgencyAllocation::FIXED)
+            ->whereNull('released_at')
+            ->whereHas('outboundFlight', fn ($q) => $q->where('scheduled_departure_at', '>', now())
+                ->whereNotIn('status', ['departed', 'cancelled']))
+            ->with(['outboundFlight', 'cabins'])
+            ->get()
+            ->filter(fn (AgencyAllocation $a) => ! $a->isOpenForNames());
+
+        foreach ($due as $allocation) {
+            DB::transaction(function () use ($allocation) {
+                $allocation = AgencyAllocation::query()->with(['outboundFlight', 'cabins'])->lockForUpdate()->findOrFail($allocation->id);
+                if ($allocation->released_at) {
+                    return;
+                }
+
+                $before = $allocation->seats;
+                foreach ($allocation->cabins as $cabin) {
+                    $cabin->update(['seats' => min($cabin->seats, $this->usedSeats($allocation, $cabin->cabin_class))]);
+                }
+                $kept = min($before, $this->usedSeats($allocation));
+                $allocation->forceFill([
+                    'seats' => $kept,
+                    'released_at' => now(),
+                    'released_seats' => $before - $kept,
+                ])->save();
+
+                if ($before > $kept) {
+                    $this->chinggis->pushAllocation($allocation->load(['cabins', 'fares.fare', 'outboundFlight', 'returnFlight', 'agency']));
+                }
+            });
+        }
+
+        return $due->count();
     }
 
     /** Seats of a flight not yet given to fixed allocations, sold outside them (direct / pool) or held by pool agencies. */

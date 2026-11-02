@@ -27,6 +27,8 @@ class AgencyResource extends JsonResource
             'contract_active' => $this->whenPivotLoaded('agency_airline', fn () => (bool) $this->pivot->is_active),
             'airlines' => $this->whenLoaded('airlines', fn () => $this->airlines->map(fn ($a) => [
                 'id' => $a->id, 'name' => $a->name, 'contract_active' => (bool) $a->pivot->is_active,
+                'can_import_passengers' => (bool) $a->pivot->can_import_passengers,
+                'can_assign_seats' => (bool) $a->pivot->can_assign_seats,
             ])),
         ];
     }

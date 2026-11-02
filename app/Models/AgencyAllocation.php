@@ -28,6 +28,9 @@ class AgencyAllocation extends Model
         return [
             'deadline' => 'date',
             'uses_fare_quotas' => 'boolean',
+            'uses_published_fares' => 'boolean',
+            'released_at' => 'datetime',
+            'released_seats' => 'integer',
             'is_waitlist' => 'boolean',
             'chinggis_synced_at' => 'datetime',
             'schedule_change_seen_at' => 'datetime',

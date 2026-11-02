@@ -30,7 +30,7 @@ class Agency extends Model
 
     public function airlines(): BelongsToMany
     {
-        return $this->belongsToMany(Airline::class)->withPivot('is_active')->withTimestamps();
+        return $this->belongsToMany(Airline::class)->withPivot(['is_active', 'can_import_passengers', 'can_assign_seats'])->withTimestamps();
     }
 
     public function users(): HasMany

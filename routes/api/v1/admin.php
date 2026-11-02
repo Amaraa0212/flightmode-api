@@ -144,6 +144,7 @@ Route::post('allocations/move', [Admin\AllocationController::class, 'move'])->mi
 Route::post('allocations/{allocation}/chinggis-push', [Admin\AllocationController::class, 'pushToChinggis'])->middleware('perm:allocations.update');
 Route::get('flights/{flight}/allocations-overview', [Admin\AllocationController::class, 'flightOverview'])->middleware('perm:allocations.view');
 Route::post('flights/{flight}/allocations/distribute', [Admin\AllocationController::class, 'distribute'])->middleware('perm:allocations.create');
+Route::post('flight-series/{flightSeries}/allocations/distribute', [Admin\AllocationController::class, 'distributeSeries'])->middleware('perm:allocations.create');
 Route::apiResource('allocations', Admin\AllocationController::class)->middleware('crud:allocations');
 Route::get('allocations/{allocation}/passengers', [Admin\AllocationController::class, 'passengers'])->middleware('perm:allocations.view');
 

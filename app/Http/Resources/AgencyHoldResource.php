@@ -24,19 +24,24 @@ class AgencyHoldResource extends JsonResource
     {
         $allocation = $this->relationLoaded('allocation') ? $this->allocation : null;
         $fare = $this->relationLoaded('fare') ? $this->fare : null;
+        $published = $this->relationLoaded('publishedFare') ? $this->publishedFare : null;
 
         return [
             'id' => $this->id,
             'agency_id' => $this->agency_id,
             'allocation_id' => $this->agency_allocation_id,
             'allocation_fare_id' => $this->agency_allocation_fare_id,
+            'fare_id' => $this->fare_id,
             'cabin_class' => $this->cabin_class->value,
             'seats' => $this->seats,
             'status' => $this->status,
             'fare' => $fare ? [
                 'fare_class' => $fare->fareClass(),
                 'price' => $fare->priceFor(PassengerType::Adult),
-            ] : null,
+            ] : ($published ? [
+                'fare_class' => $published->fareClass?->booking_code,
+                'price' => $published->priceFor(PassengerType::Adult),
+            ] : null),
             'outbound_flight' => $allocation?->relationLoaded('outboundFlight') ? new FlightResource($allocation->outboundFlight) : null,
             'return_flight' => $allocation?->relationLoaded('returnFlight') && $allocation->returnFlight ? new FlightResource($allocation->returnFlight) : null,
             'names_deadline_at' => $allocation?->namesDeadlineAt()->toIso8601String(),

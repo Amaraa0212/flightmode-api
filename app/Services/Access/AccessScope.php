@@ -9,6 +9,7 @@ use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -107,6 +108,33 @@ class AccessScope
     {
         if (! $this->allocations(AgencyAllocation::query()->whereKey($allocation->getKey()), $user)->exists()) {
             throw new AuthorizationException('You do not have access to this allocation.');
+        }
+    }
+
+    /**
+     * What the agency of an allocation may do on its airline's flights (Agents permission):
+     * Excel import of passengers and seat reservation. Airline / system users are not limited by it.
+     *
+     * @return array{import_passengers: bool, assign_seats: bool}
+     */
+    public function agencyRights(AgencyAllocation $allocation): array
+    {
+        $contract = DB::table('agency_airline')->where('agency_id', $allocation->agency_id)
+            ->where('airline_id', $allocation->airline_id)->where('is_active', true)->first();
+
+        return [
+            'import_passengers' => (bool) ($contract->can_import_passengers ?? false),
+            'assign_seats' => (bool) ($contract->can_assign_seats ?? false),
+        ];
+    }
+
+    /** @param 'import_passengers'|'assign_seats' $right */
+    public function ensureAgencyRight(User $user, AgencyAllocation $allocation, string $right): void
+    {
+        if ($user->agency_id && ! $user->airline_id && ! $this->agencyRights($allocation)[$right]) {
+            throw new AuthorizationException($right === 'import_passengers'
+                ? 'Your agency may not import passengers for this airline. Ask the airline to allow it.'
+                : 'Your agency may not reserve seats for this airline. Ask the airline to allow it.');
         }
     }
 
