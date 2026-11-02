@@ -113,6 +113,8 @@ class AllocationController extends Controller
                 ->where('outbound_flight_id', $request->integer('flight_id'))->orWhere('return_flight_id', $request->integer('flight_id'))))
             ->when($request->boolean('active', true), fn ($q) => $q->whereHas('outboundFlight', fn ($f) => $f->where('scheduled_departure_at', '>=', now()->subHours(2))))
             ->join('flights', 'flights.id', '=', 'agency_allocations.outbound_flight_id')
+            // a raw join sees deleted flights too: their allocations have no flight to show
+            ->whereNull('flights.deleted_at')
             ->orderBy('flights.scheduled_departure_at')
             ->select('agency_allocations.*')
             ->paginate($request->integer('per_page', 50));
