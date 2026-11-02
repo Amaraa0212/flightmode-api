@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('can:agency.portal')->group(function () {
     Route::get('allocations', [AllocationController::class, 'index']);
     Route::get('allocations/{allocation}', [AllocationController::class, 'show']);
+    Route::post('allocations/{allocation}/schedule-changes/seen', [AllocationController::class, 'scheduleChangesSeen']);
     Route::get('allocations/{allocation}/passengers', [AllocationController::class, 'passengers']);
     Route::get('allocations/{allocation}/ssr-codes', [AllocationController::class, 'ssrCodes']);
     Route::get('allocations/{allocation}/return-options', [AllocationController::class, 'returnOptions']);

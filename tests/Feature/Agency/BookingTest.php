@@ -98,6 +98,21 @@ class BookingTest extends TestCase
         $this->assertSame(1, PassengerSegment::query()->where('status', SegmentStatus::Waitlisted)->count());
     }
 
+    public function test_waitlist_false_refuses_a_full_allocation_instead_of_waitlisting(): void
+    {
+        $flight = $this->makeFlight();
+        $allocation = $this->makeAllocation($flight, 1, ['Y' => 1], ['is_waitlist' => true]);
+        $this->actingAsRole('agency-agent');
+
+        // with free seats the flag changes nothing
+        $this->postJson('/api/v1/agency/bookings', ['allocation_id' => $allocation->id, 'waitlist' => true, 'passengers' => [$this->passengerPayload()]])
+            ->assertCreated()->assertJsonPath('data.status', 'confirmed');
+        $this->postJson('/api/v1/agency/bookings', ['allocation_id' => $allocation->id, 'waitlist' => false, 'passengers' => [$this->passengerPayload()]])
+            ->assertStatus(422);
+        $this->postJson('/api/v1/agency/bookings', ['allocation_id' => $allocation->id, 'waitlist' => true, 'passengers' => [$this->passengerPayload()]])
+            ->assertCreated()->assertJsonPath('data.status', 'waitlisted');
+    }
+
     public function test_passenger_rules(): void
     {
         $flight = $this->makeFlight();   // UBN → PQC is international

@@ -19,6 +19,16 @@ class AllocationResource extends JsonResource
         return $this;
     }
 
+    /** @var array{unseen: int, changes: list<array<string, mixed>>}|null */
+    public ?array $scheduleChanges = null;
+
+    public function withScheduleChanges(?array $changes): self
+    {
+        $this->scheduleChanges = $changes;
+
+        return $this;
+    }
+
     public function toArray(Request $request): array
     {
         return [
@@ -49,6 +59,8 @@ class AllocationResource extends JsonResource
                 'is_manual' => $f->isManual(),
             ])),
             'usage' => $this->when($this->usage !== null, fn () => $this->usage),
+            // departure / arrival / number / route changes of its flights since the allocation was given (agency portal)
+            'schedule_changes' => $this->when($this->scheduleChanges !== null, fn () => $this->scheduleChanges),
             // last push to the Chinggis agent API (agencies with chinggis_sync)
             'chinggis' => [
                 'synced_at' => $this->chinggis_synced_at?->toIso8601String(),

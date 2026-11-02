@@ -38,6 +38,9 @@ class BookingService
     /** While creating an on-hold booking: segments get their ticket numbers only when issued */
     private bool $deferTickets = false;
 
+    /** While creating a booking sent with waitlist: false — a full allocation refuses instead of waitlisting */
+    private bool $refuseWaitlist = false;
+
     /** Passenger attributes copied from input as-is (after normalisation). */
     private const PASSENGER_FIELDS = [
         'first_name', 'middle_name', 'last_name', 'gender', 'date_of_birth', 'nationality', 'person_code',
@@ -62,10 +65,12 @@ class BookingService
     public function create(array $data, User $actor, BookingSource $source, bool $goShow = false): Booking
     {
         $this->deferTickets = ! empty($data['on_hold']);
+        $this->refuseWaitlist = array_key_exists('waitlist', $data) && ! $data['waitlist'];
         try {
             return $this->createBooking($data, $actor, $source, $goShow);
         } finally {
             $this->deferTickets = false;
+            $this->refuseWaitlist = false;
         }
     }
 
@@ -444,7 +449,7 @@ class BookingService
                     ? $this->allocations->assertCanTake($alloc, $cabin, $bucket, null, $hold)
                     : $this->allocations->assertCanTake($alloc, $cabin, $returnBucket);
             } catch (BusinessRuleException $e) {
-                if (! $alloc->is_waitlist) {
+                if (! $alloc->is_waitlist || $this->refuseWaitlist) {
                     throw $e;
                 }
                 $waitlisted = true;

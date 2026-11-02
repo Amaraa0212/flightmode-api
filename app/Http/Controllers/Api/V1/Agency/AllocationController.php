@@ -10,6 +10,7 @@ use App\Models\AgencyAllocation;
 use App\Models\AirlineSsr;
 use App\Services\Access\AccessScope;
 use App\Services\Allocation\AllocationService;
+use App\Services\Allocation\ScheduleChanges;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -20,6 +21,7 @@ class AllocationController extends Controller
     public function __construct(
         private readonly AccessScope $access,
         private readonly AllocationService $allocations,
+        private readonly ScheduleChanges $scheduleChanges,
     ) {}
 
     /** ?status=active|past (active = departs more than 2 hours from now). */
@@ -38,7 +40,9 @@ class AllocationController extends Controller
             ->select('agency_allocations.*')
             ->paginate($request->integer('per_page', 50));
 
-        $allocations->getCollection()->transform(fn ($a) => (new AllocationResource($a))->withUsage($this->allocations->usage($a)));
+        $changes = $this->scheduleChanges->forMany($allocations->getCollection());
+        $allocations->getCollection()->transform(fn ($a) => (new AllocationResource($a))->withUsage($this->allocations->usage($a))
+            ->withScheduleChanges($changes[$a->id] ?? null));
 
         return AllocationResource::collection($allocations);
     }
@@ -48,7 +52,17 @@ class AllocationController extends Controller
         $this->access->ensureAllocation($request->user(), $allocation);
         $allocation->load(['cabins', 'fares.fare', 'outboundFlight.origin', 'outboundFlight.destination', 'returnFlight.origin', 'returnFlight.destination']);
 
-        return (new AllocationResource($allocation))->withUsage($this->allocations->usage($allocation));
+        return (new AllocationResource($allocation))->withUsage($this->allocations->usage($allocation))
+            ->withScheduleChanges($this->scheduleChanges->forMany(collect([$allocation]))[$allocation->id] ?? null);
+    }
+
+    /** The agency has seen the schedule changes of this allocation's flights (the badge goes away). */
+    public function scheduleChangesSeen(Request $request, AgencyAllocation $allocation): JsonResponse
+    {
+        $this->access->ensureAllocation($request->user(), $allocation);
+        $allocation->update(['schedule_change_seen_at' => now()]);
+
+        return response()->json(['message' => 'Schedule changes acknowledged.']);
     }
 
     public function passengers(Request $request, AgencyAllocation $allocation): AnonymousResourceCollection
