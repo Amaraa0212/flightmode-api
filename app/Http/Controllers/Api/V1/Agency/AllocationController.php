@@ -32,6 +32,8 @@ class AllocationController extends Controller
         $allocations = $this->access->allocations(AgencyAllocation::query(), $request->user())
             ->with(['airline', 'cabins', 'fares.fare', 'outboundFlight.origin', 'outboundFlight.destination', 'returnFlight.origin', 'returnFlight.destination'])
             ->join('flights', 'flights.id', '=', 'agency_allocations.outbound_flight_id')
+            // a raw join sees deleted flights too: their allocations have no flight to show
+            ->whereNull('flights.deleted_at')
             ->where('flights.scheduled_departure_at', $past ? '<' : '>=', now()->addHours(2))
             ->when($past, fn ($q) => $q->where('flights.scheduled_departure_at', '>=', now()->subMonths(3)))
             ->orderBy('flights.scheduled_departure_at', $past ? 'desc' : 'asc')
