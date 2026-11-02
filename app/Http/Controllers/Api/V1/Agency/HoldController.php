@@ -12,6 +12,7 @@ use App\Models\AgencyHold;
 use App\Services\Access\AccessScope;
 use App\Services\Allocation\AllocationService;
 use App\Services\Allocation\HoldService;
+use App\Services\Allocation\ScheduleChanges;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -45,7 +46,10 @@ class HoldController extends Controller
             ->sortBy(fn (AgencyAllocation $a) => $a->outboundFlight->scheduled_departure_at)
             ->values();
 
-        return AllocationResource::collection($allocations->map(fn ($a) => (new AllocationResource($a))->withUsage($this->allocations->usage($a))));
+        $changes = app(ScheduleChanges::class)->forMany($allocations);
+
+        return AllocationResource::collection($allocations->map(fn ($a) => (new AllocationResource($a))->withUsage($this->allocations->usage($a))
+            ->withScheduleChanges($changes[$a->id] ?? null)));
     }
 
     /** ?status=active (default) | all */

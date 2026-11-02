@@ -30,6 +30,7 @@ class AgencyAllocation extends Model
             'uses_fare_quotas' => 'boolean',
             'is_waitlist' => 'boolean',
             'chinggis_synced_at' => 'datetime',
+            'schedule_change_seen_at' => 'datetime',
         ];
     }
 

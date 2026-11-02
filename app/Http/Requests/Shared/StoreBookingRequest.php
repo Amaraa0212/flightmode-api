@@ -23,6 +23,8 @@ class StoreBookingRequest extends FormRequest
             'send_eticket' => ['boolean'],
             // keep the seats without tickets until the fare's ticket time limit
             'on_hold' => ['boolean'],
+            // false: a full allocation refuses the booking instead of waitlisting it (absent: waitlist when allowed)
+            'waitlist' => ['sometimes', 'boolean'],
             'passengers' => ['required', 'array', 'min:1', 'max:50'],
         ], PassengerFields::rules('passengers.*.'));
     }

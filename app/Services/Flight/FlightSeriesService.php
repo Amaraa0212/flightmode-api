@@ -107,9 +107,12 @@ class FlightSeriesService
                 $this->applyInventoryTemplate($series, $flight);
                 $created++;
             } elseif ($flight->status === FlightStatus::Scheduled && ! $flight->is_series_override) {
+                $original = $flight->getOriginal();
                 $flight->fill($attributes);
                 if ($flight->isDirty()) {
                     $flight->save();
+                    // agencies see schedule changes from these logs
+                    $this->logger->logChanges(ActivityChannel::Admin, 'flight.updated', $flight, $original, $flight->flight_number, $flight);
                     $updated++;
                 }
             }

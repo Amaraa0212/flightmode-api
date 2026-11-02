@@ -286,6 +286,7 @@ Broadcasting (Laravel Reverb): `POST /api/broadcasting/auth` — Sanctum Bearer,
 | GET | `/api/v1/agency/accounts/{account}/transactions` | agency.portal | AccountController@transactions |
 | GET | `/api/v1/agency/allocations/{allocation}` | agency.portal | AllocationController@show |
 | POST | `/api/v1/agency/allocations/{allocation}/import` | agency.portal | BookingController@import |
+| POST | `/api/v1/agency/allocations/{allocation}/schedule-changes/seen` | agency.portal | AllocationController@scheduleChangesSeen — `schedule_changes` (allocations, flights) badge-ийг арилгана |
 | GET | `/api/v1/agency/allocations/{allocation}/passengers` | agency.portal | AllocationController@passengers |
 | GET | `/api/v1/agency/allocations/{allocation}/return-options` | agency.portal | AllocationController@returnOptions |
 | GET | `/api/v1/agency/allocations/{allocation}/ssr-codes` | agency.portal | AllocationController@ssrCodes |
