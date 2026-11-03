@@ -150,6 +150,24 @@ class BookingTest extends TestCase
         $book($this->passengerPayload(['last_name' => "O'Neil-Smith"]))->assertCreated();
     }
 
+    public function test_agency_adds_and_removes_an_infant_when_editing_a_passenger(): void
+    {
+        $allocation = $this->makeAllocation($this->makeFlight());
+        $this->actingAsRole('agency-agent');
+        $id = $this->postJson('/api/v1/agency/bookings', ['allocation_id' => $allocation->id, 'passengers' => [$this->passengerPayload()]])
+            ->assertCreated()->json('data.passengers.0.id');
+
+        $this->putJson("/api/v1/agency/passengers/{$id}", ['infant' => ['first_name' => 'Baby', 'last_name' => 'Dorj',
+            'gender' => 'F', 'date_of_birth' => now()->subYear()->toDateString(), 'document_expires_at' => now()->addYears(4)->toDateString()]])
+            ->assertOk();
+        $this->getJson("/api/v1/agency/passengers/{$id}")->assertJsonPath('data.infant.first_name', 'BABY')
+            ->assertJsonPath('data.infant.type', 'INF');
+
+        $this->putJson("/api/v1/agency/passengers/{$id}", ['infant' => null])->assertOk();
+        $this->getJson("/api/v1/agency/passengers/{$id}")->assertJsonPath('data.infant', null);
+        $this->assertSame(1, $this->getJson("/api/v1/agency/allocations/{$allocation->id}")->json('data.usage.used'));
+    }
+
     public function test_names_deadline_blocks_agency(): void
     {
         $flight = $this->makeFlight(now()->addHour());

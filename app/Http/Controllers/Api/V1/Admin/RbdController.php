@@ -63,6 +63,11 @@ class RbdController extends AirlineCrudController
         ];
     }
 
+    protected function messages(): array
+    {
+        return ['code.unique' => 'This booking class already exists for the airline.'];
+    }
+
     protected function afterSave(Model $model, array $data): void
     {
         if ($model->wasRecentlyCreated) {
