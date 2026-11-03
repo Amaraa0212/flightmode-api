@@ -144,7 +144,8 @@ class FareSettingsTest extends TestCase
     {
         $this->postJson('/api/v1/admin/rbds', ['code' => 'm1', 'cabin_class' => 'Y', 'rank' => 1])->assertStatus(422)->assertJsonValidationErrors('code');
         $rbd = $this->postJson('/api/v1/admin/rbds', ['code' => 'Y', 'cabin_class' => 'Y', 'rank' => 1])->assertCreated()->json('data.id');
-        $this->postJson('/api/v1/admin/rbds', ['code' => 'Y', 'cabin_class' => 'Y', 'rank' => 2])->assertStatus(422)->assertJsonValidationErrors('code');
+        $this->postJson('/api/v1/admin/rbds', ['code' => 'Y', 'cabin_class' => 'Y', 'rank' => 2])->assertStatus(422)
+            ->assertJsonValidationErrors(['code' => 'This booking class already exists for the airline.']);
         $this->putJson("/api/v1/admin/rbds/{$rbd}", ['parent_id' => $rbd])->assertStatus(422)->assertJsonValidationErrors('parent_id');
         $this->postJson('/api/v1/admin/fare-classes', ['rbd_id' => $rbd, 'booking_code' => 'Y OW', 'status' => 'HK', 'trip_type' => 'OW'])
             ->assertStatus(422)->assertJsonValidationErrors('booking_code');

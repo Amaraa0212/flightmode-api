@@ -71,7 +71,7 @@ abstract class AirlineCrudController extends Controller
     public function store(Request $request): JsonResponse
     {
         $airlineId = $this->access->airlineIdForWrite($request->user(), $request->integer('airline_id') ?: null);
-        $data = $request->validate($this->rules($request, null));
+        $data = $request->validate($this->rules($request, null), $this->messages());
 
         $model = DB::transaction(function () use ($data, $airlineId) {
             $model = $this->model()::create(collect($data)->except(array_merge($this->nonAttributes(), ['airline_id']))->all() + ['airline_id' => $airlineId]);
@@ -86,7 +86,7 @@ abstract class AirlineCrudController extends Controller
     public function update(Request $request, int $id): JsonResponse
     {
         $model = $this->find($request, $id);
-        $data = $request->validate($this->rules($request, $model));
+        $data = $request->validate($this->rules($request, $model), $this->messages());
 
         DB::transaction(function () use ($model, $data) {
             $model->update(collect($data)->except(array_merge($this->nonAttributes(), ['airline_id']))->all());
@@ -101,6 +101,12 @@ abstract class AirlineCrudController extends Controller
         $this->find($request, $id)->delete();
 
         return $this->deleted($this->label().' deleted.');
+    }
+
+    /** @return array<string, string> custom validation messages */
+    protected function messages(): array
+    {
+        return [];
     }
 
     /** Airline the record is (or will be) written for: the model's own airline, or the one store() will use. */
