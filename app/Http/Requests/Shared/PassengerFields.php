@@ -4,6 +4,7 @@ namespace App\Http\Requests\Shared;
 
 use App\Enums\CabinClass;
 use App\Enums\Gender;
+use Closure;
 use Illuminate\Validation\Rule;
 
 /** Validation rules of passenger fields, shared by every endpoint that creates or edits passengers. */
@@ -12,22 +13,28 @@ final class PassengerFields
     /** A 4-digit year first: `date` alone lets typos like 199001-05-12 through. */
     private const FOUR_DIGIT_YEAR = 'regex:/^\d{4}-\d{2}-\d{2}/';
 
+    /** Names as printed on the passport (machine-readable zone): Latin letters, spaces, hyphens, apostrophes */
+    private const NAME = '/^[A-Za-z][A-Za-z \'-]*$/';
+
+    /** Country code (MN, MNG) */
+    private const COUNTRY = '/^[A-Za-z]+$/';
+
     /** @return array<string, mixed> */
     public static function rules(string $prefix = '', bool $creating = true, bool $withTravel = true): array
     {
         $required = $creating ? 'required' : 'sometimes';
 
         $rules = [
-            $prefix.'first_name' => [$required, 'string', 'max:100'],
-            $prefix.'middle_name' => ['nullable', 'string', 'max:100'],
-            $prefix.'last_name' => [$required, 'string', 'max:100'],
+            $prefix.'first_name' => [$required, 'string', 'max:100', self::latin(self::NAME)],
+            $prefix.'middle_name' => ['nullable', 'string', 'max:100', self::latin(self::NAME)],
+            $prefix.'last_name' => [$required, 'string', 'max:100', self::latin(self::NAME)],
             $prefix.'gender' => ['nullable', Rule::enum(Gender::class)],
             $prefix.'date_of_birth' => ['nullable', 'date', self::FOUR_DIGIT_YEAR, 'after:1900-01-01', 'before:today'],
-            $prefix.'nationality' => ['nullable', 'string', 'between:2,3'],
+            $prefix.'nationality' => ['nullable', 'string', 'between:2,3', self::latin(self::COUNTRY)],
             $prefix.'person_code' => ['nullable', 'string', 'max:20'],
             $prefix.'document_type' => ['nullable', 'string', 'max:20'],
             $prefix.'document_number' => ['nullable', 'string', 'max:50'],
-            $prefix.'document_issuing_country' => ['nullable', 'string', 'between:2,3'],
+            $prefix.'document_issuing_country' => ['nullable', 'string', 'between:2,3', self::latin(self::COUNTRY)],
             $prefix.'document_issued_at' => ['nullable', 'date'],
             $prefix.'document_expires_at' => ['nullable', 'date'],
             $prefix.'email' => ['nullable', 'email', 'max:255'],
@@ -59,5 +66,15 @@ final class PassengerFields
         }
 
         return $rules;
+    }
+
+    /** Latin characters only: Cyrillic (or other scripts) cannot go on tickets, APIS or the DCS */
+    public static function latin(string $pattern): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail) use ($pattern) {
+            if (is_string($value) && trim($value) !== '' && ! preg_match($pattern, trim($value))) {
+                $fail('The :attribute must be written in Latin letters (no Cyrillic).');
+            }
+        };
     }
 }

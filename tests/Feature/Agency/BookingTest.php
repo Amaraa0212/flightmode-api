@@ -136,6 +136,20 @@ class BookingTest extends TestCase
             ->assertStatus(422)->assertJsonPath('code', 'infant_without_adult');
     }
 
+    public function test_cyrillic_names_are_rejected(): void
+    {
+        $allocation = $this->makeAllocation($this->makeFlight());
+        $this->actingAsRole('agency-agent');
+        $book = fn (array $pax) => $this->postJson('/api/v1/agency/bookings', ['allocation_id' => $allocation->id, 'passengers' => [$pax]]);
+
+        $book($this->passengerPayload(['last_name' => 'Батболд']))
+            ->assertStatus(422)->assertJsonValidationErrors(['passengers.0.last_name']);
+        $book($this->passengerPayload(['infant' => ['first_name' => 'Анu', 'last_name' => 'Dorj',
+            'date_of_birth' => now()->subYear()->toDateString(), 'document_expires_at' => now()->addYears(4)->toDateString()]]))
+            ->assertStatus(422)->assertJsonValidationErrors(['passengers.0.infant.first_name']);
+        $book($this->passengerPayload(['last_name' => "O'Neil-Smith"]))->assertCreated();
+    }
+
     public function test_names_deadline_blocks_agency(): void
     {
         $flight = $this->makeFlight(now()->addHour());

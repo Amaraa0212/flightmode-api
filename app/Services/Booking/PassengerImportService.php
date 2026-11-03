@@ -61,6 +61,9 @@ class PassengerImportService
 
                 continue;
             }
+            if (! preg_match('/^[A-Za-z][A-Za-z \'-]*$/', trim($data['first_name'].' '.$data['last_name']))) {
+                $errors[] = "Row {$line}: first and last name must be written in Latin letters (no Cyrillic).";
+            }
             if (! preg_match('/^[A-Z]{2}$/', (string) $data['document_issuing_country'])) {
                 $errors[] = "Row {$line}: issued_state must be a 2-letter country code.";
             }
