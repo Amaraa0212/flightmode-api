@@ -16,7 +16,8 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 /**
- * Airport taxes (fare_id null): charged on every fare departing the airport whose trip type (OW / RT) matches.
+ * Airport taxes (fare_id null): OW lines are charged on OW fares departing the airport; RT lines on RT fares
+ * starting or ending there (both ends added, at the RT % — see Fare::taxLines).
  * A line with fare_id overrides the default of the same tax code for that fare only (and takes the fare's trip type).
  */
 class FareTaxController extends AirlineCrudController
@@ -65,7 +66,7 @@ class FareTaxController extends AirlineCrudController
         return [
             'tax_code_id' => [$required, 'integer', Rule::exists('tax_codes', 'id')->where('airline_id', $airlineId)],
             'fare_id' => ['nullable', 'integer', Rule::exists('fares', 'id')->where('airline_id', $airlineId)],
-            'airport_id' => ['nullable', 'required_without:fare_id', 'integer', 'exists:airports,id'],
+            'airport_id' => ['nullable', Rule::requiredIf(! $model && ! $request->filled('fare_id')), 'integer', 'exists:airports,id'],
             // ignored on a fare override: it takes the fare's trip type
             'trip_type' => [Rule::requiredIf(! $model && ! $request->filled('fare_id')), Rule::enum(TripType::class)],
             'passenger_type' => [$required, Rule::enum(PassengerType::class)],

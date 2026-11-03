@@ -10,6 +10,7 @@ use App\Models\AgencyAllocation;
 use App\Models\AirlineSsr;
 use App\Services\Access\AccessScope;
 use App\Services\Allocation\AllocationService;
+use App\Services\Agency\AgencySeatService;
 use App\Services\Allocation\ScheduleChanges;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -54,6 +55,47 @@ class AllocationController extends Controller
 
         return (new AllocationResource($allocation))->withUsage($this->allocations->usage($allocation))
             ->withScheduleChanges($this->scheduleChanges->forMany(collect([$allocation]))[$allocation->id] ?? null);
+    }
+
+    /** Seat map of a charter flight of the allocation (?flight_id = outbound or return) with the agency's passengers. */
+    public function seatMap(Request $request, AgencyAllocation $allocation, AgencySeatService $seats): JsonResponse
+    {
+        $this->ensureSeatRight($request, $allocation);
+        $flight = $seats->flight($allocation, $request->integer('flight_id') ?: null);
+
+        return response()->json(['data' => $seats->seatMap($allocation, $flight)]);
+    }
+
+    /** Reserve seats: { flight_id?, seats: [{segment_id, seat_number|null}] } — no check-in. */
+    public function saveSeats(Request $request, AgencyAllocation $allocation, AgencySeatService $seats): JsonResponse
+    {
+        $this->ensureSeatRight($request, $allocation);
+        $data = $request->validate([
+            'flight_id' => ['nullable', 'integer'],
+            'seats' => ['required', 'array', 'min:1'],
+            'seats.*.segment_id' => ['required', 'integer', 'distinct'],
+            'seats.*.seat_number' => ['nullable', 'string', 'max:5'],
+        ]);
+        $flight = $seats->flight($allocation, $data['flight_id'] ?? null);
+        $changed = $seats->assign($allocation, $flight, $data['seats']);
+
+        return $this->success("{$changed} seat(s) saved.", $seats->seatMap($allocation, $flight));
+    }
+
+    /** Seats for every passenger of the agency on the flight without one. */
+    public function autoSeats(Request $request, AgencyAllocation $allocation, AgencySeatService $seats): JsonResponse
+    {
+        $this->ensureSeatRight($request, $allocation);
+        $flight = $seats->flight($allocation, $request->integer('flight_id') ?: null);
+        $changed = $seats->autoAssign($allocation, $flight);
+
+        return $this->success("{$changed} passenger(s) seated.", $seats->seatMap($allocation, $flight));
+    }
+
+    private function ensureSeatRight(Request $request, AgencyAllocation $allocation): void
+    {
+        $this->access->ensureAllocation($request->user(), $allocation);
+        $this->access->ensureAgencyRight($request->user(), $allocation, 'assign_seats');
     }
 
     /** The agency has seen the schedule changes of this allocation's flights (the badge goes away). */

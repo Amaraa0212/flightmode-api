@@ -23,6 +23,7 @@ use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\Agency\AccountService;
 use App\Services\Allocation\AllocationService;
+use App\Services\Fare\FareQuoteService;
 use App\Services\Inventory\InventoryService;
 use App\Support\PassengerAge;
 use Illuminate\Support\Carbon;
@@ -56,6 +57,7 @@ class BookingService
         private readonly ActivityLogger $logger,
         private readonly InventoryService $inventory,
         private readonly AccountService $accounts,
+        private readonly FareQuoteService $quotes,
     ) {}
 
     /**
@@ -126,6 +128,7 @@ class BookingService
                 $row = $hold ? array_merge($row, [
                     'cabin_class' => $hold->cabin_class->value,
                     'allocation_fare_id' => $hold->agency_allocation_fare_id ?? ($row['allocation_fare_id'] ?? null),
+                    'fare_id' => $hold->fare_id ?? ($row['fare_id'] ?? null),
                 ]) : $row;
                 $waitlisted = $this->addPassenger($booking, $flights, $row, $allocation, $returnAllocation, $goShow, $hold) || $waitlisted;
             }
@@ -456,9 +459,23 @@ class BookingService
             }
         }
 
-        $directFare = isset($row['fare_id']) ? Fare::query()->with('fareClass')->findOrFail($row['fare_id']) : null;
+        $directFare = isset($row['fare_id']) ? Fare::query()->with('fareClass.rbd')->findOrFail($row['fare_id']) : null;
+        $returnFare = isset($row['return_fare_id']) ? Fare::query()->with('fareClass.rbd')->findOrFail($row['return_fare_id']) : null;
+        $this->assertPublishedFares($allocation, $returnAllocation, $cabin, $directFare, $returnFare);
+
         if (! $allocation && ! $goShow) {
             $waitlisted = $this->assertInventory($flights, $cabin, $directFare) || $waitlisted;
+        }
+        // a pool sells the flight's open seats: its booking class limits apply too (a hold already kept the seats)
+        if (! $goShow && ! $hold) {
+            if ($allocation?->isPool()) {
+                $own = $flights->whereIn('id', $allocation->flightIds());
+                $waitlisted = $this->assertInventory($own, $cabin, $directFare ?? $bucket?->fare, $allocation->is_waitlist) || $waitlisted;
+            }
+            if ($returnAllocation?->isPool()) {
+                $own = $flights->where('id', $returnAllocation->outbound_flight_id);
+                $waitlisted = $this->assertInventory($own, $cabin, $returnFare ?? $returnBucket?->fare, $returnAllocation->is_waitlist) || $waitlisted;
+            }
         }
 
         if ($infantData) {
@@ -468,14 +485,14 @@ class BookingService
         }
 
         $passenger = $booking->passengers()->create($attributes + ['type' => $type]);
-        $this->createSegments($passenger, $flights, $cabin, $type, $bucket, $returnBucket, $returnAllocation, $directFare, $row, $waitlisted, $goShow);
+        $this->createSegments($passenger, $flights, $cabin, $type, $bucket, $returnBucket, $returnAllocation, $directFare, $row, $waitlisted, $goShow, $returnFare);
 
         if ($infantData) {
             $infant = $booking->passengers()->create($infantData + [
                 'type' => PassengerType::Infant,
                 'infant_of_passenger_id' => $passenger->id,
             ]);
-            $this->createSegments($infant, $flights, $cabin, PassengerType::Infant, $bucket, $returnBucket, $returnAllocation, $directFare, [], $waitlisted, $goShow);
+            $this->createSegments($infant, $flights, $cabin, PassengerType::Infant, $bucket, $returnBucket, $returnAllocation, $directFare, [], $waitlisted, $goShow, $returnFare);
         }
 
         return $waitlisted;
@@ -488,24 +505,26 @@ class BookingService
     private function createSegments(
         Passenger $passenger, Collection $flights, CabinClass $cabin, PassengerType $type,
         ?AgencyAllocationFare $bucket, ?AgencyAllocationFare $returnBucket, ?AgencyAllocation $returnAllocation,
-        ?Fare $directFare, array $row, bool $waitlisted, bool $goShow,
+        ?Fare $directFare, array $row, bool $waitlisted, bool $goShow, ?Fare $returnFare = null,
     ): void {
         $ticket = $this->deferTickets ? null : $this->tickets->for($flights->first()->airline, $passenger);
 
         foreach ($flights->values() as $index => $flight) {
             $isReturnAllocationFlight = $returnAllocation && $flight->id === $returnAllocation->outbound_flight_id;
             $segmentBucket = $isReturnAllocationFlight ? $returnBucket : $bucket;
+            // the return allocation's own published fare, when one was chosen
+            $segmentFare = $isReturnAllocationFlight ? ($returnFare ?? $directFare) : $directFare;
             // A round-trip price is charged once, on the first coupon it covers.
             $charged = $index === 0 || $isReturnAllocationFlight;
-            $price = $charged ? ($segmentBucket?->priceFor($type) ?? $directFare?->priceFor($type)) : null;
+            $price = $charged ? ($segmentBucket?->priceFor($type) ?? $segmentFare?->priceFor($type)) : null;
 
             $segment = $passenger->segments()->create([
                 'flight_id' => $flight->id,
                 'segment_no' => $index + 1,
                 'cabin_class' => $cabin,
-                'fare_id' => $segmentBucket?->fare_id ?? $directFare?->id,
+                'fare_id' => $segmentBucket?->fare_id ?? $segmentFare?->id,
                 'agency_allocation_fare_id' => $segmentBucket?->id,
-                'fare_class' => $segmentBucket?->fareClass() ?? $directFare?->fare_class,
+                'fare_class' => $segmentBucket?->fareClass() ?? $segmentFare?->fare_class,
                 'ticket_number' => $ticket,
                 'fare_amount' => $price['fare'] ?? 0,
                 'tax_amount' => $price['tax'] ?? 0,
@@ -622,13 +641,36 @@ class BookingService
      * @param  Collection<int, Flight>  $flights
      * @return bool whether the passenger must be waitlisted
      */
-    private function assertInventory(Collection $flights, CabinClass $cabin, ?Fare $fare): bool
+    /**
+     * An allocation selling at published fares needs a fare base of the fare settings on each of its flights,
+     * bookable now (route, dates, advance booking, stay, upgrade class…); outbound + return must combine.
+     */
+    private function assertPublishedFares(?AgencyAllocation $allocation, ?AgencyAllocation $returnAllocation, CabinClass $cabin, ?Fare $fare, ?Fare $returnFare): void
+    {
+        if ($allocation?->uses_published_fares) {
+            if (! $fare) {
+                throw BusinessRuleException::make('fare_required', 'Choose a fare for this allocation.');
+            }
+            $this->quotes->assertBookable($fare, $allocation->outboundFlight, $allocation->returnFlight, $cabin);
+        }
+        if ($returnAllocation?->uses_published_fares) {
+            if (! $returnFare) {
+                throw BusinessRuleException::make('return_fare_required', 'Choose a fare for the return allocation.');
+            }
+            $this->quotes->assertBookable($returnFare, $returnAllocation->outboundFlight, null, $cabin);
+        }
+        if ($fare && $returnFare) {
+            $this->quotes->assertCombinable($fare, $returnFare);
+        }
+    }
+
+    private function assertInventory(Collection $flights, CabinClass $cabin, ?Fare $fare, bool $waitlist = false): bool
     {
         foreach ($flights as $flight) {
             try {
                 $this->inventory->assertCanSell($flight, $cabin, $fare?->fare_class);
             } catch (BusinessRuleException $e) {
-                if (! $fare?->fareClass?->waitlist) {
+                if (! $waitlist && ! $fare?->fareClass?->waitlist) {
                     throw $e;
                 }
 
@@ -741,7 +783,7 @@ class BookingService
         $first = $segments->first();
         $bucket = $first->allocationFare;
         $this->createSegments($infant, $flights, $first->cabin_class, PassengerType::Infant, $bucket, null, null,
-            $allocation ? null : $first->fare, [], $first->status === SegmentStatus::Waitlisted, $first->is_go_show);
+            $allocation && ! $allocation->uses_published_fares ? null : $first->fare, [], $first->status === SegmentStatus::Waitlisted, $first->is_go_show);
     }
 
     /** @param array<string> $codes */

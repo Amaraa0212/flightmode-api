@@ -10,6 +10,7 @@ use App\Http\Resources\AllocationResource;
 use App\Http\Resources\PassengerResource;
 use App\Models\AgencyAllocation;
 use App\Models\Flight;
+use App\Models\FlightSeries;
 use App\Models\Passenger;
 use App\Services\Access\AccessScope;
 use App\Services\Allocation\AllocationBoard;
@@ -60,6 +61,7 @@ class AllocationController extends Controller
             'rows.*.cabins' => ['nullable', 'array'],
             'rows.*.cabins.*' => ['integer', 'min:0'],
             'rows.*.deadline' => ['nullable', 'date'],
+            'rows.*.uses_published_fares' => ['boolean'],
             'remove' => ['array'],
             'remove.*' => ['integer'],
         ]);
@@ -67,6 +69,32 @@ class AllocationController extends Controller
         $this->board->distribute($flight, $data['rows'], $data['remove'] ?? [], $data['deadline'] ?? null);
 
         return $this->success('Quota saved.', $this->board->overview($flight->refresh()));
+    }
+
+    /**
+     * The same quota on every flight of a series between two dates:
+     * { date_from, date_to, deadline_days_before, rows: [{agency_id, mode, seats, cabins?, uses_published_fares?}] }
+     */
+    public function distributeSeries(Request $request, FlightSeries $flightSeries): JsonResponse
+    {
+        $this->access->ensureAirlineOwned($request->user(), $flightSeries);
+        $data = $request->validate([
+            'date_from' => ['required', 'date_format:Y-m-d'],
+            'date_to' => ['required', 'date_format:Y-m-d', 'after_or_equal:date_from'],
+            'deadline_days_before' => ['nullable', 'integer', 'min:0', 'max:60'],
+            'rows' => ['required', 'array', 'min:1'],
+            'rows.*.agency_id' => ['required', 'integer', 'exists:agencies,id', 'distinct'],
+            'rows.*.mode' => ['required', Rule::in([AgencyAllocation::FIXED, AgencyAllocation::POOL])],
+            'rows.*.seats' => ['required', 'integer', 'min:0'],
+            'rows.*.cabins' => ['nullable', 'array'],
+            'rows.*.cabins.*' => ['integer', 'min:0'],
+            'rows.*.uses_published_fares' => ['boolean'],
+        ]);
+
+        $result = $this->board->distributeSeries($flightSeries, $data['date_from'], $data['date_to'], $data['rows'],
+            (int) ($data['deadline_days_before'] ?? 1));
+
+        return $this->success("Quota saved on {$result['saved']} of {$result['flights']} flight(s).", $result);
     }
 
     /** Push the allocation to the Chinggis agent API now (agencies with chinggis_sync). */

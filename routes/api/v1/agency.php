@@ -18,6 +18,10 @@ Route::middleware('can:agency.portal')->group(function () {
     Route::get('allocations/{allocation}/passengers', [AllocationController::class, 'passengers']);
     Route::get('allocations/{allocation}/ssr-codes', [AllocationController::class, 'ssrCodes']);
     Route::get('allocations/{allocation}/return-options', [AllocationController::class, 'returnOptions']);
+    // charter: seat reservation for the agency's passengers (Agents permission "Seats")
+    Route::get('allocations/{allocation}/seat-map', [AllocationController::class, 'seatMap']);
+    Route::put('allocations/{allocation}/seats', [AllocationController::class, 'saveSeats']);
+    Route::post('allocations/{allocation}/seats/auto', [AllocationController::class, 'autoSeats']);
     Route::post('allocations/{allocation}/import', [BookingController::class, 'import']);
 
     // find flights of a day, hold seats, enter names later

@@ -42,6 +42,8 @@ final class PassengerFields
                 $prefix.'allocation_fare_id' => ['nullable', 'integer'],
                 $prefix.'return_allocation_fare_id' => ['nullable', 'integer'],
                 $prefix.'fare_id' => ['nullable', 'integer', 'exists:fares,id'],
+                // published fare of the return allocation (outbound + return must combine)
+                $prefix.'return_fare_id' => ['nullable', 'integer', 'exists:fares,id'],
                 $prefix.'agency_sale_amount' => ['nullable', 'numeric', 'min:0'],
                 $prefix.'ssr_codes' => ['sometimes', 'array'],
                 $prefix.'ssr_codes.*' => ['string', 'max:8'],

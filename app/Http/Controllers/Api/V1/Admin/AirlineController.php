@@ -76,13 +76,21 @@ class AirlineController extends Controller
     public function setAgencyContract(Request $request, Airline $airline, Agency $agency): JsonResponse
     {
         $this->ensureOwn($request, $airline);
-        $data = $request->validate(['is_active' => ['required', 'boolean']]);
+        $data = $request->validate([
+            'is_active' => ['sometimes', 'required', 'boolean'],
+            // Excel import of the quota's passengers / seat reservation on charter flights
+            'can_import_passengers' => ['sometimes', 'boolean'],
+            'can_assign_seats' => ['sometimes', 'boolean'],
+        ]);
         // an airline's own sales channel sells for that airline only
         if ($agency->owner_airline_id && $agency->owner_airline_id !== $airline->id) {
             throw new AuthorizationException("{$agency->name} is a sales channel of another airline.");
         }
 
-        $airline->agencies()->syncWithoutDetaching([$agency->id => ['is_active' => $data['is_active']]]);
+        $exists = $airline->agencies()->whereKey($agency->id)->exists();
+        $exists
+            ? $airline->agencies()->updateExistingPivot($agency->id, $data)
+            : $airline->agencies()->attach($agency->id, $data + ['is_active' => true]);
 
         return $this->success('Contract saved.');
     }

@@ -92,8 +92,9 @@ class Fare extends Model
     }
 
     /**
-     * Taxes charged for a passenger type: the departure airport's defaults for this fare's trip type (OW / RT),
-     * with a line saved on this fare replacing the default of the same tax code.
+     * Taxes charged for a passenger type, with a line saved on this fare replacing the default of the same tax code.
+     * OW: the departure airport's OW defaults. RT: the RT defaults of both airports (out and back), each at
+     * `flightmode.fares.round_trip_tax_percent` % (default 70). Overrides are charged as saved.
      *
      * @return Collection<int, FareTax>
      */
@@ -104,13 +105,27 @@ class Fare extends Model
             ->where('passenger_type', $type)
             ->where(fn (Builder $q) => $q->where('fare_id', $this->id)
                 ->orWhere(fn (Builder $d) => $d->whereNull('fare_id')
-                    ->where('airport_id', $this->origin_airport_id)
+                    ->whereIn('airport_id', $this->taxAirportIds())
                     ->where('trip_type', $this->trip_type)))
             ->get();
 
         $overridden = $lines->whereNotNull('fare_id')->pluck('tax_code_id')->all();
+        $percent = (float) config('flightmode.fares.round_trip_tax_percent', 100);
 
-        return $lines->reject(fn (FareTax $t) => $t->fare_id === null && in_array($t->tax_code_id, $overridden, true))->values();
+        return $lines->reject(fn (FareTax $t) => $t->fare_id === null && in_array($t->tax_code_id, $overridden, true))
+            // RT airport defaults: charged at the RT % (an unsaved copy, the stored line keeps its full amount)
+            ->map(fn (FareTax $t) => $t->fare_id === null && $this->trip_type === TripType::RoundTrip
+                ? (clone $t)->setAttribute('amount', round((float) $t->amount * $percent / 100, 2))
+                : $t)
+            ->values();
+    }
+
+    /** Airports whose default taxes apply: departure for OW, both ends for RT. @return array<int, int> */
+    public function taxAirportIds(): array
+    {
+        return $this->trip_type === TripType::RoundTrip
+            ? [$this->origin_airport_id, $this->destination_airport_id]
+            : [$this->origin_airport_id];
     }
 
     private function money(float $value): string

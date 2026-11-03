@@ -7,8 +7,10 @@ use App\Enums\CabinClass;
 use App\Exceptions\BusinessRuleException;
 use App\Models\AgencyAllocation;
 use App\Models\AgencyHold;
+use App\Models\Fare;
 use App\Models\User;
 use App\Services\ActivityLogger;
+use App\Services\Fare\FareQuoteService;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -20,12 +22,13 @@ class HoldService
     public function __construct(
         private readonly AllocationService $allocations,
         private readonly ActivityLogger $logger,
+        private readonly FareQuoteService $quotes,
     ) {}
 
-    public function create(AgencyAllocation $allocation, CabinClass $cabin, int $seats, ?int $bucketId, User $actor, ActivityChannel $channel): AgencyHold
+    public function create(AgencyAllocation $allocation, CabinClass $cabin, int $seats, ?int $bucketId, User $actor, ActivityChannel $channel, ?int $fareId = null): AgencyHold
     {
-        return DB::transaction(function () use ($allocation, $cabin, $seats, $bucketId, $actor, $channel) {
-            $allocation = AgencyAllocation::query()->with(['cabins', 'fares', 'outboundFlight'])->lockForUpdate()->findOrFail($allocation->id);
+        return DB::transaction(function () use ($allocation, $cabin, $seats, $bucketId, $actor, $channel, $fareId) {
+            $allocation = AgencyAllocation::query()->with(['cabins', 'fares', 'outboundFlight', 'returnFlight'])->lockForUpdate()->findOrFail($allocation->id);
 
             if (! $allocation->isOpenForNames()) {
                 throw BusinessRuleException::make('names_deadline_passed', 'The name list deadline for this allocation has passed.');
@@ -48,6 +51,20 @@ class HoldService
                 throw BusinessRuleException::make('fare_wrong_cabin', 'The chosen fare is for another cabin.');
             }
 
+            // published fares: the hold keeps a bookable fare base, within its booking class seats on a pool
+            $published = null;
+            if ($allocation->uses_published_fares) {
+                $published = $fareId ? Fare::query()->with('fareClass.rbd')->find($fareId) : null;
+                if (! $published) {
+                    throw BusinessRuleException::make('fare_required', 'Choose a fare for this allocation.');
+                }
+                $this->quotes->assertBookable($published, $allocation->outboundFlight, $allocation->returnFlight, $cabin);
+                $left = $allocation->isPool() ? $this->quotes->available($published, $allocation->outboundFlight, $allocation->returnFlight) : null;
+                if ($left !== null && $seats > $left) {
+                    throw BusinessRuleException::make('rbd_sold_out', "Booking class {$published->fareClass->rbd->code}: only {$left} seat(s) left.");
+                }
+            }
+
             // pool: also what is left on the flight — a seat held here is gone for the other agencies
             $free = $this->allocations->freeToTake($allocation, $cabin, $bucket);
             if ($seats > $free) {
@@ -59,6 +76,7 @@ class HoldService
                 'agency_id' => $allocation->agency_id,
                 'agency_allocation_id' => $allocation->id,
                 'agency_allocation_fare_id' => $bucket?->id,
+                'fare_id' => $published?->id,
                 'cabin_class' => $cabin,
                 'seats' => $seats,
                 'created_by' => $actor->id,

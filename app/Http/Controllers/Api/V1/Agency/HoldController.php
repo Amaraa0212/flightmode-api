@@ -13,6 +13,7 @@ use App\Services\Access\AccessScope;
 use App\Services\Allocation\AllocationService;
 use App\Services\Allocation\HoldService;
 use App\Services\Allocation\ScheduleChanges;
+use App\Services\Fare\FareQuoteService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -27,6 +28,7 @@ class HoldController extends Controller
         private readonly AccessScope $access,
         private readonly AllocationService $allocations,
         private readonly HoldService $holds,
+        private readonly FareQuoteService $quotes,
     ) {}
 
     /** The agency's allocations whose outbound flight departs on `date` (local date at the origin). */
@@ -48,15 +50,26 @@ class HoldController extends Controller
 
         $changes = app(ScheduleChanges::class)->forMany($allocations);
 
-        return AllocationResource::collection($allocations->map(fn ($a) => (new AllocationResource($a))->withUsage($this->allocations->usage($a))
+        return AllocationResource::collection($allocations->map(fn ($a) => (new AllocationResource($a))->withUsage($this->usage($a))
             ->withScheduleChanges($changes[$a->id] ?? null)));
+    }
+
+    /** Usage of the allocation; with published fares its "fares" are the fare bases it can sell now, with their rules. */
+    private function usage(AgencyAllocation $allocation): array
+    {
+        $usage = $this->allocations->usage($allocation);
+        if ($allocation->uses_published_fares) {
+            $usage['fares'] = $this->quotes->forAllocation($allocation);
+        }
+
+        return $usage;
     }
 
     /** ?status=active (default) | all */
     public function index(Request $request): AnonymousResourceCollection
     {
         $holds = AgencyHold::query()
-            ->with(['fare.fare', 'creator:id,name', 'allocation.outboundFlight.origin', 'allocation.outboundFlight.destination',
+            ->with(['fare.fare', 'publishedFare.fareClass', 'creator:id,name', 'allocation.outboundFlight.origin', 'allocation.outboundFlight.destination',
                 'allocation.returnFlight.origin', 'allocation.returnFlight.destination'])
             ->when(! $request->user()->isSystemAdmin(), fn ($q) => $q->where('agency_id', $request->user()->agency_id ?? 0))
             ->when($request->input('status', 'active') === 'active', fn ($q) => $q->where('status', AgencyHold::ACTIVE)
@@ -75,12 +88,14 @@ class HoldController extends Controller
             'cabin_class' => ['required', Rule::enum(CabinClass::class)],
             'seats' => ['required', 'integer', 'min:1', 'max:99'],
             'allocation_fare_id' => ['nullable', 'integer'],
+            // allocation selling at published fares
+            'fare_id' => ['nullable', 'integer', 'exists:fares,id'],
         ]);
         $allocation = AgencyAllocation::query()->findOrFail($data['allocation_id']);
         $this->access->ensureAllocation($request->user(), $allocation);
 
         $hold = $this->holds->create($allocation, CabinClass::from($data['cabin_class']), $data['seats'],
-            $data['allocation_fare_id'] ?? null, $request->user(), $this->channel($request));
+            $data['allocation_fare_id'] ?? null, $request->user(), $this->channel($request), $data['fare_id'] ?? null);
 
         return $this->created("{$hold->seats} seat(s) held.", $this->resource($hold));
     }
@@ -95,7 +110,7 @@ class HoldController extends Controller
 
     private function resource(AgencyHold $hold): AgencyHoldResource
     {
-        $hold->load(['fare.fare', 'allocation.outboundFlight.origin', 'allocation.outboundFlight.destination']);
+        $hold->load(['fare.fare', 'publishedFare.fareClass', 'allocation.outboundFlight.origin', 'allocation.outboundFlight.destination']);
 
         return (new AgencyHoldResource($hold))->withUsage($this->holds->usage($hold));
     }

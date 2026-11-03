@@ -53,7 +53,8 @@ trait BuildsFlightData
         $generator->generateBlock($this->aircraft, 7, 10, CabinClass::Economy, ['left' => 'ABC', 'right' => 'DEF'], 'C');
 
         $this->agency = Agency::create(['name' => 'Test Travel', 'api_enabled' => true]);
-        $this->agency->airlines()->attach($this->airline->id, ['is_active' => true]);
+        // existing contracts kept the Excel import (2026_11_04 migration)
+        $this->agency->airlines()->attach($this->airline->id, ['is_active' => true, 'can_import_passengers' => true]);
     }
 
     protected function makeFlight(?Carbon $departure = null, array $attributes = []): Flight

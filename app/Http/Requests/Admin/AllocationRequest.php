@@ -21,6 +21,8 @@ class AllocationRequest extends FormRequest
             'seats' => ['required', 'integer', Rule::when($this->input('mode') === AgencyAllocation::POOL, 'min:0', 'min:1')],
             'deadline' => ['required', 'date'],
             'is_waitlist' => ['boolean'],
+            // sell at the fare settings prices instead of fare buckets
+            'uses_published_fares' => ['boolean'],
             // a pool without cabins sells every cabin of the aircraft
             'cabins' => [Rule::requiredIf($this->input('mode') !== AgencyAllocation::POOL), 'array'],
             'cabins.*' => ['integer', 'min:0'],

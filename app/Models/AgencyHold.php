@@ -41,6 +41,12 @@ class AgencyHold extends Model
         return $this->belongsTo(AgencyAllocationFare::class, 'agency_allocation_fare_id');
     }
 
+    /** Published fare (allocation selling at the fare settings prices) its names are booked at */
+    public function publishedFare(): BelongsTo
+    {
+        return $this->belongsTo(Fare::class, 'fare_id');
+    }
+
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
