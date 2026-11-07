@@ -166,7 +166,7 @@ class CheckinFlowTest extends TestCase
         $this->assertSame('medical', $segment->fresh()->offload_type);
     }
 
-    public function test_gate_view_all_permission_sees_the_airlines_flights_without_being_assigned(): void
+    public function test_gate_view_all_permission_reads_the_airlines_flights_but_cannot_board_or_offload(): void
     {
         $this->flight->update(['scheduled_departure_at' => now()->addHours(3)]);
         $other = Airline::create(['name' => 'Other Air', 'iata_code' => 'OT', 'numeric_code' => '456']);
@@ -185,6 +185,11 @@ class CheckinFlowTest extends TestCase
         $this->assertFalse($ids->contains($foreign->id));
         $this->getJson("/api/v1/gate/flights/{$this->flight->id}")->assertOk();
         $this->getJson("/api/v1/gate/flights/{$foreign->id}")->assertForbidden();
+        $this->getJson("/api/v1/gate/flights/{$this->flight->id}/passengers")->assertOk();
+
+        $segment = $this->book();
+        $this->postJson("/api/v1/gate/flights/{$this->flight->id}/board", ['barcode' => 'X 1A '.$segment->id])->assertForbidden();
+        $this->postJson("/api/v1/gate/segments/{$segment->id}/offload", ['type' => 'medical'])->assertForbidden();
     }
 
     public function test_go_show_passenger_is_added_at_the_counter(): void

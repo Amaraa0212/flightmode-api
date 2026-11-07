@@ -61,7 +61,7 @@ class AccessScope
         return $query->where('flights.airline_id', $user->airline_id ?? 0);
     }
 
-    /** Gate app: the agent's assigned flights, or with gate.view_all every flight they can see. */
+    /** Gate app: the agent's assigned flights, or with gate.view_all every flight they can see (read only). */
     public function gateFlights(Builder $query, User $user): Builder
     {
         return $user->hasPermission('gate.view_all')
@@ -69,7 +69,7 @@ class AccessScope
             : $query->whereHas('gateAgents', fn ($q) => $q->whereKey($user->id));
     }
 
-    public function canUseGateOn(User $user, Flight $flight): bool
+    public function canViewGateFlight(User $user, Flight $flight): bool
     {
         return $this->gateFlights(Flight::query(), $user)->whereKey($flight->id)->exists();
     }

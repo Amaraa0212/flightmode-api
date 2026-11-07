@@ -129,7 +129,7 @@ final class MenuCatalog
                 ['key' => 'dcs', 'name' => 'DCS app', 'icon' => 'MonitorCheck', 'actions' => [
                     'access' => 'View', 'checkin' => 'Check-in, baggage, open / close counter',
                 ]],
-                ['key' => 'gate', 'name' => 'Gate app', 'icon' => 'DoorOpen', 'actions' => ['access' => 'Gate app', 'view_all' => 'All flights, without being assigned']],
+                ['key' => 'gate', 'name' => 'Gate app', 'icon' => 'DoorOpen', 'actions' => ['access' => 'Gate app', 'view_all' => 'View all flights without being assigned (no boarding)']],
             ]],
         ];
     }

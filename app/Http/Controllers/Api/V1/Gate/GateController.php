@@ -19,7 +19,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
-/** Gate (boarding) app: the flights a gate agent is assigned to (or all, with gate.view_all), boarding by scan, offloading. */
+/** Gate (boarding) app: the flights a gate agent is assigned to (gate.view_all also reads the others), boarding by scan, offloading. */
 class GateController extends Controller
 {
     public function __construct(
@@ -40,7 +40,7 @@ class GateController extends Controller
 
     public function show(Request $request, Flight $flight): JsonResponse
     {
-        $this->ensureAssigned($request, $flight);
+        $this->ensureCanView($request, $flight);
 
         return response()->json(['data' => [
             'flight' => (new FlightResource($flight->load(['airline', 'aircraft', 'origin', 'destination'])))->resolve(),
@@ -51,7 +51,7 @@ class GateController extends Controller
     /** ?state=checked_in|boarded&search= */
     public function passengers(Request $request, Flight $flight): AnonymousResourceCollection
     {
-        $this->ensureAssigned($request, $flight);
+        $this->ensureCanView($request, $flight);
         $term = trim((string) $request->input('search'));
         $states = match ($request->input('state')) {
             'boarded' => [SegmentStatus::Boarded],
@@ -113,7 +113,15 @@ class GateController extends Controller
 
     private function ensureAssigned(Request $request, Flight $flight): void
     {
-        if (! $this->access->canUseGateOn($request->user(), $flight)) {
+        $user = $request->user();
+        if (! $user->isSystemAdmin() && ! $flight->gateAgents()->whereKey($user->id)->exists()) {
+            throw new AuthorizationException('You are not assigned to this flight.');
+        }
+    }
+
+    private function ensureCanView(Request $request, Flight $flight): void
+    {
+        if (! $this->access->canViewGateFlight($request->user(), $flight)) {
             throw new AuthorizationException('You are not assigned to this flight.');
         }
     }
