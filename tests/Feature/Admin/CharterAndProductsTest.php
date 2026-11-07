@@ -4,7 +4,9 @@ namespace Tests\Feature\Admin;
 
 use App\Enums\BookingSource;
 use App\Enums\RoleScope;
+use App\Models\Aircraft;
 use App\Models\Airline;
+use App\Models\Announcement;
 use App\Models\BaggageRule;
 use App\Models\Flight;
 use App\Models\PassengerSegment;
@@ -256,5 +258,29 @@ class CharterAndProductsTest extends TestCase
         $flight->fresh()->update(['status' => 'checkin_closed']);
         $this->actingAsRole('airline-admin');
         $status('reopen')->assertOk();
+    }
+
+    public function test_saving_a_flight_change_can_notify_staff_and_agencies(): void
+    {
+        $flight = $this->makeFlight(now()->addDays(4)->setTime(1, 0));
+        $newer = Aircraft::create(['airline_id' => $this->airline->id, 'registration' => 'JU-2002', 'type' => 'A320', 'total_seats' => 56]);
+        $this->actingAsRole('airline-admin');
+        $url = "/api/v1/admin/flights/{$flight->id}";
+
+        // no notification unless asked, or when nothing that matters changed
+        $this->putJson($url, ['gate' => 'A1', 'notify_change' => true])->assertOk();
+        $this->putJson($url, ['scheduled_departure_at' => $flight->scheduled_departure_at->copy()->addHour()->toIso8601String()])->assertOk();
+        $this->assertSame(0, Announcement::query()->count());
+
+        $this->putJson($url, ['aircraft_id' => $newer->id, 'notify_change' => true])->assertOk();
+        $announcement = Announcement::query()->sole();
+        $this->assertStringContainsString('TA101', $announcement->title);
+        $this->assertStringContainsString('JU-1001 (B737) → JU-2002 (A320)', $announcement->body);
+
+        // the bell of the airline's staff, station agents and the contracted agency
+        foreach (['airline-staff', 'station-agent', 'agency-agent'] as $role) {
+            $this->actingAsRole($role);
+            $this->getJson('/api/v1/announcements')->assertOk()->assertJsonPath('data.0.id', $announcement->id);
+        }
     }
 }

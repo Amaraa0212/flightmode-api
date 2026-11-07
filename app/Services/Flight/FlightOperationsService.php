@@ -7,11 +7,15 @@ use App\Enums\FlightServiceType;
 use App\Enums\FlightStatus;
 use App\Enums\SegmentStatus;
 use App\Exceptions\BusinessRuleException;
+use App\Models\Aircraft;
+use App\Models\Airport;
+use App\Models\Announcement;
 use App\Models\Flight;
 use App\Models\PassengerSegment;
 use App\Models\ServiceTemplate;
 use App\Services\ActivityLogger;
 use App\Services\Integrations\Chinggis\ChinggisSync;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -25,7 +29,7 @@ class FlightOperationsService
     /** Fields a flight series writes on its flights. */
     private const SERIES_FIELDS = [
         'aircraft_id', 'flight_number', 'service_type', 'origin_airport_id', 'destination_airport_id', 'scheduled_departure_at',
-        'scheduled_arrival_at', 'gate', 'excess_baggage_max_kg', 'excess_baggage_price_per_kg',
+        'scheduled_arrival_at', 'gate', 'no_baggage_rule', 'excess_baggage_max_kg', 'excess_baggage_price_per_kg',
     ];
 
     public function __construct(
@@ -34,7 +38,7 @@ class FlightOperationsService
     ) {}
 
     /** @param array<string, mixed> $data */
-    public function update(Flight $flight, array $data): Flight
+    public function update(Flight $flight, array $data, bool $notify = false): Flight
     {
         $this->assertCanBecomeCharter($flight, $data['service_type'] ?? null);
         $original = $flight->getOriginal();
@@ -52,7 +56,41 @@ class FlightOperationsService
             $this->chinggis->flightChanged($flight);
         }
 
+        if ($notify) {
+            $this->announceChange($flight, $original);
+        }
+
         return $flight;
+    }
+
+    /** A new time or aircraft, for everyone of the airline and its agencies (the bell of each app). */
+    private function announceChange(Flight $flight, array $original): void
+    {
+        $flight->loadMissing(['origin', 'destination']);
+        $time = fn ($value, ?Airport $airport) => Carbon::parse($value)->timezone($airport?->timezone ?? config('app.timezone'))->format('Y-m-d H:i');
+        $lines = [];
+        if ($flight->wasChanged('scheduled_departure_at')) {
+            $lines[] = 'Хөөрөх: '.$time($original['scheduled_departure_at'], $flight->origin).' → '.$time($flight->scheduled_departure_at, $flight->origin);
+        }
+        if ($flight->wasChanged('scheduled_arrival_at')) {
+            $lines[] = 'Буух: '.$time($original['scheduled_arrival_at'], $flight->destination).' → '.$time($flight->scheduled_arrival_at, $flight->destination);
+        }
+        if ($flight->wasChanged('aircraft_id')) {
+            $aircraft = Aircraft::query()->whereIn('id', [$original['aircraft_id'], $flight->aircraft_id])->get()->keyBy('id');
+            $name = fn ($id) => ($a = $aircraft->get($id)) ? "{$a->registration} ({$a->type})" : '-';
+            $lines[] = 'Онгоц: '.$name($original['aircraft_id']).' → '.$name($flight->aircraft_id);
+        }
+        if ($lines === []) {
+            return;
+        }
+
+        $date = $time($flight->scheduled_departure_at, $flight->origin);
+        Announcement::create([
+            'airline_id' => $flight->airline_id,
+            'title' => "Хуваарь өөрчлөгдлөө: {$flight->flight_number} {$flight->route()} ".substr($date, 0, 10),
+            'body' => implode("\n", $lines),
+            'created_by' => auth()->id(),
+        ]);
     }
 
     /** A scheduled flight with issued tickets stays scheduled: those passengers bought published fares. */

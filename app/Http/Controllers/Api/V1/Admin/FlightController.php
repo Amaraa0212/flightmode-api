@@ -221,7 +221,7 @@ class FlightController extends Controller
     public function update(FlightRequest $request, Flight $flight): JsonResponse
     {
         $this->access->ensureAirlineOwned($request->user(), $flight);
-        $this->operations->update($flight, $request->flightData());
+        $this->operations->update($flight, $request->flightData(), $request->boolean('notify_change'));
 
         return $this->success('Flight updated.', new FlightResource($flight->load(['airline', 'aircraft', 'origin', 'destination'])));
     }

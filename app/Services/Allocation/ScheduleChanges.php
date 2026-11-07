@@ -4,6 +4,7 @@ namespace App\Services\Allocation;
 
 use App\Models\ActivityLog;
 use App\Models\AgencyAllocation;
+use App\Models\Aircraft;
 use App\Models\Airport;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -15,7 +16,7 @@ use Illuminate\Support\Collection;
 class ScheduleChanges
 {
     /** Flight fields that make a schedule change for the agency */
-    public const FIELDS = ['scheduled_departure_at', 'scheduled_arrival_at', 'flight_number', 'origin_airport_id', 'destination_airport_id'];
+    public const FIELDS = ['scheduled_departure_at', 'scheduled_arrival_at', 'flight_number', 'origin_airport_id', 'destination_airport_id', 'aircraft_id'];
 
     /**
      * @param  Collection<int, AgencyAllocation>  $allocations
@@ -41,6 +42,10 @@ class ScheduleChanges
             ->whereIn('id', $logs->flatMap(fn ($row) => collect($row[1])->only(['origin_airport_id', 'destination_airport_id'])->flatten())->filter()->unique())
             ->pluck('iata_code', 'id');
 
+        $aircraft = Aircraft::query()
+            ->whereIn('id', $logs->flatMap(fn ($row) => collect($row[1])->only(['aircraft_id'])->flatten())->filter()->unique())
+            ->get()->mapWithKeys(fn (Aircraft $a) => [$a->id => "{$a->registration} ({$a->type})"]);
+
         $result = [];
         foreach ($allocations as $allocation) {
             $changes = $logs
@@ -55,8 +60,8 @@ class ScheduleChanges
                     'seen' => $allocation->schedule_change_seen_at !== null && $row[0]->created_at->lte($allocation->schedule_change_seen_at),
                     'changes' => collect($row[1])->map(fn ($pair, $field) => [
                         'field' => $field,
-                        'from' => $this->display($field, $pair[0], $airports),
-                        'to' => $this->display($field, $pair[1], $airports),
+                        'from' => $this->display($field, $pair[0], $field === 'aircraft_id' ? $aircraft : $airports),
+                        'to' => $this->display($field, $pair[1], $field === 'aircraft_id' ? $aircraft : $airports),
                     ])->values()->all(),
                 ])
                 ->values();
@@ -91,11 +96,11 @@ class ScheduleChanges
         return (string) $value;
     }
 
-    /** @param  Collection<int, string>  $airports */
-    private function display(string $field, mixed $value, Collection $airports): ?string
+    /** @param  Collection<int, string>  $names  id => what to show, for the fields holding an id */
+    private function display(string $field, mixed $value, Collection $names): ?string
     {
-        if (in_array($field, ['origin_airport_id', 'destination_airport_id'], true)) {
-            return $value ? ($airports[$value] ?? (string) $value) : null;
+        if (in_array($field, ['origin_airport_id', 'destination_airport_id', 'aircraft_id'], true)) {
+            return $value ? ($names[$value] ?? (string) $value) : null;
         }
 
         return $this->normalise($value);
