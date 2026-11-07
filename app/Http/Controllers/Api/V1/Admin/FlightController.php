@@ -110,8 +110,9 @@ class FlightController extends Controller
     }
 
     /**
-     * Several flights at once: one flight's data with a local departure time and block time, on each of `dates`
-     * (local days of the origin). A date that already has this flight number is skipped and reported.
+     * Several flights at once: one flight's data with a local departure time and a local arrival time (at the
+     * destination) or block time, on each of `dates` (local days of the origin).
+     * A date that already has this flight number is skipped and reported.
      */
     public function storeMany(Request $request): JsonResponse
     {
@@ -126,7 +127,8 @@ class FlightController extends Controller
             'excess_baggage_max_kg' => ['nullable', 'numeric', 'min:0'],
             'excess_baggage_price_per_kg' => ['nullable', 'numeric', 'min:0'],
             'departure_time' => ['required', 'date_format:H:i'],
-            'block_minutes' => ['required', 'integer', 'min:10', 'max:1440'],
+            'arrival_time' => ['required_without:block_minutes', 'date_format:H:i'],
+            'block_minutes' => ['required_without:arrival_time', 'integer', 'min:10', 'max:1440'],
             'terminal' => ['nullable', 'string', 'max:5'],
             'gate' => ['nullable', 'string', 'max:10'],
             'dates' => ['required', 'array', 'min:1', 'max:120'],
@@ -135,9 +137,10 @@ class FlightController extends Controller
         $airlineId = $this->access->airlineIdForWrite($request->user(), $data['airline_id'] ?? null);
         $number = strtoupper(str_replace(' ', '', $data['flight_number']));
         $timezone = Airport::query()->whereKey($data['origin_airport_id'])->value('timezone') ?? config('app.timezone');
+        $arrivalTimezone = Airport::query()->whereKey($data['destination_airport_id'])->value('timezone') ?? config('app.timezone');
 
         $created = $skipped = [];
-        DB::transaction(function () use ($data, $airlineId, $number, $timezone, $request, &$created, &$skipped) {
+        DB::transaction(function () use ($data, $airlineId, $number, $timezone, $arrivalTimezone, $request, &$created, &$skipped) {
             foreach (collect($data['dates'])->sort() as $date) {
                 $departure = Carbon::createFromFormat('Y-m-d H:i', "{$date} {$data['departure_time']}", $timezone)->utc();
                 $exists = Flight::query()->where('airline_id', $airlineId)->where('flight_number', $number)
@@ -158,7 +161,9 @@ class FlightController extends Controller
                     'excess_baggage_max_kg' => $data['excess_baggage_max_kg'] ?? null,
                     'excess_baggage_price_per_kg' => $data['excess_baggage_price_per_kg'] ?? null,
                     'scheduled_departure_at' => $departure,
-                    'scheduled_arrival_at' => $departure->copy()->addMinutes($data['block_minutes']),
+                    'scheduled_arrival_at' => isset($data['arrival_time'])
+                        ? $this->arrivalAfter($departure, $date, $data['arrival_time'], $arrivalTimezone)
+                        : $departure->copy()->addMinutes($data['block_minutes']),
                     'terminal' => $data['terminal'] ?? null,
                     'gate' => $data['gate'] ?? null,
                     'status' => FlightStatus::Scheduled,
@@ -172,11 +177,24 @@ class FlightController extends Controller
         return $this->created($message, ['created' => $created, 'skipped' => $skipped]);
     }
 
+    /** The first time this local clock time at the destination comes after departure: the same day, the next, or (flying west) the day before. */
+    private function arrivalAfter(Carbon $departure, string $date, string $time, string $timezone): Carbon
+    {
+        foreach ([-1, 0, 1, 2] as $days) {
+            $arrival = Carbon::createFromFormat('Y-m-d H:i', Carbon::parse($date)->addDays($days)->toDateString().' '.$time, $timezone)->utc();
+            if ($arrival->gt($departure)) {
+                return $arrival;
+            }
+        }
+
+        return $arrival;
+    }
+
     /** The latest flight with this number, to fill a new one: aircraft, route, local departure time, block time. */
     public function latest(Request $request): JsonResponse
     {
         $request->validate(['flight_number' => ['required', 'string', 'max:10']]);
-        $flight = $this->access->flights(Flight::query(), $request->user())->with('origin:id,timezone')
+        $flight = $this->access->flights(Flight::query(), $request->user())->with(['origin:id,timezone', 'destination:id,timezone'])
             ->where('flight_number', strtoupper(str_replace(' ', '', $request->string('flight_number'))))
             ->latest('scheduled_departure_at')->first();
 
@@ -186,6 +204,7 @@ class FlightController extends Controller
             'destination_airport_id' => $flight->destination_airport_id,
             'service_type' => $flight->service_type?->value ?? 'scheduled',
             'departure_time' => $flight->scheduled_departure_at->copy()->timezone($flight->origin?->timezone ?? config('app.timezone'))->format('H:i'),
+            'arrival_time' => $flight->scheduled_arrival_at->copy()->timezone($flight->destination?->timezone ?? config('app.timezone'))->format('H:i'),
             'block_minutes' => (int) $flight->scheduled_departure_at->diffInMinutes($flight->scheduled_arrival_at),
             'terminal' => $flight->terminal,
             'last_date' => $flight->scheduled_departure_at->toIso8601String(),

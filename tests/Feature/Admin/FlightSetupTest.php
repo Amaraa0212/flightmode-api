@@ -4,6 +4,7 @@ namespace Tests\Feature\Admin;
 
 use App\Enums\BookingSource;
 use App\Models\Airline;
+use App\Models\Airport;
 use App\Models\Flight;
 use App\Services\Booking\BookingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -217,5 +218,31 @@ class FlightSetupTest extends TestCase
         $this->assertSame([$single->id, $back->id], $ids('search=JU-1001'));
         $this->assertSame([$single->id, $back->id], $ids('source=single'));
         $this->assertSame([], $ids('source=series'));
+    }
+
+    public function test_bulk_flights_take_the_arrival_as_local_time_of_the_destination(): void
+    {
+        $this->actingAsRole('airline-admin');
+        $icn = Airport::create(['iata_code' => 'ICN', 'name' => 'Incheon', 'city' => 'Seoul', 'timezone' => 'Asia/Seoul']);
+        $body = fn (array $more) => $more + ['aircraft_id' => $this->aircraft->id, 'origin_airport_id' => $this->ubn->id,
+            'dates' => [today()->addDays(5)->toDateString()]];
+
+        // 23:30 at UBN (UTC+8) to 04:00 at ICN (UTC+9): the next day, 3 h 30 min
+        $this->postJson('/api/v1/admin/flights/bulk', $body(['flight_number' => 'TA301', 'destination_airport_id' => $icn->id, 'departure_time' => '23:30', 'arrival_time' => '04:00']))->assertCreated();
+        $east = Flight::query()->where('flight_number', 'TA301')->firstOrFail();
+        $this->assertSame(210, (int) $east->scheduled_departure_at->diffInMinutes($east->scheduled_arrival_at));
+        $this->getJson("/api/v1/admin/flights/{$east->id}")->assertJsonPath('data.scheduled_arrival_local', today()->addDays(6)->toDateString().' 04:00');
+
+        // flying west: 02:00 at ICN (UTC+9) to 03:00 at UBN is 2 h of flight, not 1
+        $this->postJson('/api/v1/admin/flights/bulk', ['origin_airport_id' => $icn->id, 'destination_airport_id' => $this->ubn->id] + [
+            'aircraft_id' => $this->aircraft->id, 'dates' => [today()->addDays(5)->toDateString()],
+            'flight_number' => 'TA302', 'departure_time' => '02:00', 'arrival_time' => '03:00',
+        ])->assertCreated();
+        $west = Flight::query()->where('flight_number', 'TA302')->firstOrFail();
+        $this->assertSame(120, (int) $west->scheduled_departure_at->diffInMinutes($west->scheduled_arrival_at));
+
+        $this->postJson('/api/v1/admin/flights/bulk', $body(['flight_number' => 'TA303', 'destination_airport_id' => $icn->id, 'departure_time' => '08:00']))
+            ->assertStatus(422)->assertJsonValidationErrors(['arrival_time', 'block_minutes']);
+        $this->getJson('/api/v1/admin/flights/latest?flight_number=TA301')->assertJsonPath('data.arrival_time', '04:00');
     }
 }
