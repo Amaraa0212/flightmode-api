@@ -17,6 +17,9 @@ use Illuminate\Support\Facades\DB;
  *  - the first run moves roles from the old *.manage keys to the new ones (MenuCatalog::legacyMap)
  *
  *   php artisan db:seed --class=MenuSeeder --force
+ *
+ * Not on a database whose menus were reorganised by hand (production): the catalog's groups and key-less parents that
+ * were renamed are created again, and permission names are overwritten. Add new items there with a migration.
  */
 class MenuSeeder extends Seeder
 {

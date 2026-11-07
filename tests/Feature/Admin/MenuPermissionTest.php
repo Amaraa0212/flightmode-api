@@ -232,4 +232,33 @@ class MenuPermissionTest extends TestCase
         $this->postJson("/api/v1/admin/ip-access/{$other->id}/addresses", ['ip' => '10.0.0.1'])->assertForbidden();
         $this->getJson('/api/v1/admin/ip-access')->assertOk()->assertJsonPath('data.airline.id', $this->airline->id);
     }
+
+    public function test_the_migration_adds_new_items_without_touching_menus_changed_by_hand(): void
+    {
+        // production: the menus were renamed and moved; these did not exist yet
+        Permission::query()->whereIn('key', ['flight_manager.reopen', 'gate.view_all'])->delete();
+        Menu::query()->where('key', 'sales_summary')->delete();
+        $group = MenuGroup::query()->create(['name' => 'Business Rules', 'order' => 99]);
+        Menu::query()->where('key', 'sales_report')->update(['name' => 'Ticket Sales', 'parent_id' => null, 'menu_group_id' => $group->id, 'order' => 5]);
+        MenuGroup::query()->where('name', 'Flight')->update(['name' => 'Schedule']);
+        $groups = MenuGroup::query()->count();
+        $menus = Menu::query()->count();
+
+        $migration = require database_path('migrations/2026_11_07_120000_add_reopen_gate_view_all_and_sales_summary_permissions.php');
+        $migration->up();
+        $migration->up(); // twice: nothing is added again
+
+        $this->assertSame($groups, MenuGroup::query()->count());
+        $this->assertSame($menus + 1, Menu::query()->count());
+        $this->assertSame('Ticket Sales', Menu::query()->where('key', 'sales_report')->value('name'));
+        $this->assertTrue(MenuGroup::query()->where('name', 'Schedule')->exists());
+
+        $summary = Menu::query()->where('key', 'sales_summary')->firstOrFail();
+        $this->assertSame([$group->id, 6, '/reports/sales-summary'], [$summary->menu_group_id, $summary->order, $summary->path]);
+
+        $roles = fn (string $key) => Role::query()->whereHas('permissions', fn ($p) => $p->where('key', $key))->pluck('slug')->all();
+        $this->assertEqualsCanonicalizing($roles('flight_manager.cancel'), $roles('flight_manager.reopen'));
+        $this->assertSame(['airline-admin'], $roles('gate.view_all'));
+        $this->assertEqualsCanonicalizing($roles('sales_report.view'), $roles('sales_summary.view'));
+    }
 }
