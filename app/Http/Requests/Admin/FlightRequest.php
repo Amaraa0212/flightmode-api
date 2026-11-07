@@ -25,6 +25,7 @@ class FlightRequest extends FormRequest
             'gate' => ['nullable', 'string', 'max:10'],
             'is_published' => ['boolean'],
             'service_type' => ['sometimes', Rule::enum(FlightServiceType::class)],
+            'no_baggage_rule' => ['boolean'],
             'excess_baggage_max_kg' => ['nullable', 'numeric', 'min:0'],
             'excess_baggage_price_per_kg' => ['nullable', 'numeric', 'min:0'],
         ];

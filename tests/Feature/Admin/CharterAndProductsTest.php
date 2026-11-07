@@ -9,6 +9,7 @@ use App\Models\Flight;
 use App\Models\PassengerSegment;
 use App\Models\SeatPrice;
 use App\Services\Booking\BookingService;
+use App\Services\Flight\FlightStatistics;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\BuildsFlightData;
 use Tests\TestCase;
@@ -50,20 +51,76 @@ class CharterAndProductsTest extends TestCase
         $this->putJson("/api/v1/admin/flights/{$scheduled->id}", ['service_type' => 'adhoc'])->assertStatus(422);
     }
 
-    public function test_charter_flight_takes_every_bag_free_without_a_rule_or_limit(): void
+    public function test_no_baggage_rule_charter_takes_every_bag_free_without_a_rule_or_limit(): void
     {
-        $flight = $this->makeFlight(now()->addHours(3), ['service_type' => 'charter', 'excess_baggage_price_per_kg' => 18000]);
+        $flight = $this->makeFlight(now()->addHours(3), ['service_type' => 'charter', 'no_baggage_rule' => true, 'excess_baggage_price_per_kg' => 18000]);
         $segment = $this->book($flight);
         $this->actingAsRole('station-agent');
         $this->postJson("/api/v1/dcs/flights/{$flight->id}/open")->assertOk();
 
         $this->getJson("/api/v1/dcs/segments/{$segment->id}/baggage-rules")->assertOk()
-            ->assertJsonPath('data.is_charter', true)->assertJsonCount(0, 'data.rules');
+            ->assertJsonPath('data.no_baggage_rule', true)->assertJsonCount(0, 'data.rules');
 
         $this->postJson("/api/v1/dcs/segments/{$segment->id}/baggage", ['pieces' => 4, 'weight_kg' => 95])->assertCreated()
             ->assertJsonPath('data.free_allowance_kg', '95.0')
             ->assertJsonPath('data.excess_price', '0.00')
             ->assertJsonPath('data.baggage_rule', null);
+    }
+
+    public function test_charter_without_the_flag_prices_bags_by_baggage_rule(): void
+    {
+        $flight = $this->makeFlight(now()->addHours(3), ['service_type' => 'charter', 'excess_baggage_price_per_kg' => 18000]);
+        $rule = BaggageRule::create(['airline_id' => $this->airline->id, 'name' => '1PC 23KG', 'type' => 'piece', 'pieces' => 1, 'weight_kg' => 23, 'price' => 0, 'is_active' => true]);
+        $flight->baggageRules()->attach($rule->id);
+        $segment = $this->book($flight);
+        $this->actingAsRole('station-agent');
+        $this->postJson("/api/v1/dcs/flights/{$flight->id}/open")->assertOk();
+
+        $this->getJson("/api/v1/dcs/segments/{$segment->id}/baggage-rules")->assertOk()
+            ->assertJsonPath('data.no_baggage_rule', false)->assertJsonCount(1, 'data.rules');
+        $this->postJson("/api/v1/dcs/segments/{$segment->id}/baggage", ['pieces' => 1, 'weight_kg' => 20])
+            ->assertStatus(422)->assertJsonValidationErrors('baggage_rule_id');
+        $this->postJson("/api/v1/dcs/segments/{$segment->id}/baggage/quote", ['baggage_rule_id' => $rule->id, 'pieces' => 1, 'weight_kg' => 25])
+            ->assertOk()->assertJsonPath('data.excess_kg', 2);
+    }
+
+    public function test_quota_is_given_on_charter_flights_only(): void
+    {
+        $scheduled = $this->makeFlight();
+        $charter = $this->makeFlight(now()->addDays(4), ['flight_number' => 'TA900', 'service_type' => 'charter']);
+        $this->actingAsRole('airline-admin');
+        $body = fn (Flight $f) => ['agency_id' => $this->agency->id, 'outbound_flight_id' => $f->id, 'seats' => 5, 'cabins' => ['Y' => 5],
+            'deadline' => $f->scheduled_departure_at->copy()->subDay()->toDateString()];
+
+        $this->postJson('/api/v1/admin/allocations', $body($scheduled))->assertStatus(422)->assertJsonPath('code', 'quota_charter_only');
+        $this->postJson("/api/v1/admin/flights/{$scheduled->id}/allocations/distribute", ['rows' => [
+            ['agency_id' => $this->agency->id, 'mode' => 'fixed', 'seats' => 5, 'cabins' => ['Y' => 5]],
+        ]])->assertStatus(422)->assertJsonPath('code', 'quota_charter_only');
+        $this->postJson('/api/v1/admin/allocations', $body($charter))->assertCreated();
+
+        // quota already on a scheduled flight keeps working
+        $old = $this->makeAllocation($scheduled);
+        $this->putJson("/api/v1/admin/allocations/{$old->id}", $body($scheduled))->assertOk();
+    }
+
+    public function test_rush_bag_gets_its_own_tag_with_the_typed_details(): void
+    {
+        $flight = $this->makeFlight(now()->addHours(3));
+        $this->actingAsRole('station-agent');
+        $this->postJson("/api/v1/dcs/flights/{$flight->id}/open")->assertOk();
+
+        $url = "/api/v1/dcs/flights/{$flight->id}/rush";
+        $this->postJson($url, ['weight_kg' => 18])->assertStatus(422)
+            ->assertJsonValidationErrors(['passenger_name', 'original_flight', 'phone']);
+
+        $bag = $this->postJson($url, ['passenger_name' => 'John Smith', 'original_flight' => 'om 301 / 07 nov', 'phone' => '+976 99112233', 'weight_kg' => 18])
+            ->assertCreated()->assertJsonPath('data.type', 'rush')->assertJsonPath('data.rush_passenger_name', 'JOHN SMITH')->json('data');
+        $this->assertStringContainsString('997', $bag['tags'][0]['tag_number']);
+
+        $this->getJson("/api/v1/dcs/baggage-tags/{$bag['tags'][0]['id']}")->assertOk()
+            ->assertJsonPath('data.is_rush', true)->assertJsonPath('data.passenger', 'JOHN SMITH')
+            ->assertJsonPath('data.original_flight', 'OM 301 / 07 NOV')->assertJsonPath('data.phone', '+976 99112233');
+        $this->assertSame(18.0, app(FlightStatistics::class)->baggage($flight)['rush_weight_kg']);
     }
 
     public function test_cargo_gets_its_own_tags_and_totals(): void

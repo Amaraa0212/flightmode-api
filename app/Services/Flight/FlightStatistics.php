@@ -98,13 +98,14 @@ class FlightStatistics
             ->sortKeys()->values()->all();
     }
 
-    /** @return array{pieces: int, weight_kg: float, passengers: int, crew_pieces: int, crew_weight_kg: float, cargo_pieces: int, cargo_weight_kg: float, excess_amount: float, waived_amount: float} */
+    /** @return array{pieces: int, weight_kg: float, passengers: int, crew_pieces: int, crew_weight_kg: float, cargo_pieces: int, cargo_weight_kg: float, rush_pieces: int, rush_weight_kg: float, excess_amount: float, waived_amount: float} */
     public function baggage(Flight $flight): array
     {
         $all = CheckedBaggage::query()->where('flight_id', $flight->id)->get();
         $pax = $all->whereNotNull('passenger_segment_id');
         $crew = $all->where('type', BaggageType::Crew);
         $cargo = $all->where('type', BaggageType::Cargo);
+        $rush = $all->where('type', BaggageType::Rush);
 
         return [
             'pieces' => (int) $pax->sum('pieces'),
@@ -114,6 +115,8 @@ class FlightStatistics
             'crew_weight_kg' => (float) $crew->sum('weight_kg'),
             'cargo_pieces' => (int) $cargo->sum('pieces'),
             'cargo_weight_kg' => (float) $cargo->sum('weight_kg'),
+            'rush_pieces' => (int) $rush->sum('pieces'),
+            'rush_weight_kg' => (float) $rush->sum('weight_kg'),
             // waived excess was not collected
             'excess_amount' => (float) $pax->sum(fn ($b) => (float) $b->price + (float) $b->excess_price - (float) $b->waived_amount),
             'waived_amount' => (float) $pax->sum('waived_amount'),

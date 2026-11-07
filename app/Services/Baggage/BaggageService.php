@@ -28,6 +28,8 @@ class BaggageService
 
     public const CARGO_SEQUENCE = '998';
 
+    public const RUSH_SEQUENCE = '997';
+
     public function __construct(
         private readonly CheckinService $checkin,
         private readonly ActivityLogger $logger,
@@ -63,7 +65,7 @@ class BaggageService
                 $segment->update(['boarding_sequence' => $this->checkin->nextBoardingSequence($flight)]);
             }
 
-            if ($flight->isCharter()) {
+            if ($flight->hasNoBaggageRule()) {
                 $rule = null;
                 $quote = ['free_allowance_kg' => (float) $data['weight_kg'], 'price' => 0.0, 'excess_price' => 0.0];
                 $settlement = [];
@@ -151,7 +153,13 @@ class BaggageService
         return $this->acceptWithoutPassenger($flight, $data, BaggageType::Cargo);
     }
 
-    /** @param array{weight_kg: float, pieces?: int, crew_name?: ?string, description?: ?string} $data */
+    /** Late baggage sent on this flight: its own RUSH tags, kept out of the passengers' baggage. @param array{weight_kg: float, pieces?: int, passenger_name: string, original_flight: string, phone: string, description?: ?string} $data */
+    public function acceptRush(Flight $flight, array $data): CheckedBaggage
+    {
+        return $this->acceptWithoutPassenger($flight, $data, BaggageType::Rush);
+    }
+
+    /** @param array{weight_kg: float, pieces?: int, crew_name?: ?string, passenger_name?: string, original_flight?: string, phone?: string, description?: ?string} $data */
     private function acceptWithoutPassenger(Flight $flight, array $data, BaggageType $type): CheckedBaggage
     {
         return DB::transaction(function () use ($flight, $data, $type) {
@@ -163,6 +171,9 @@ class BaggageService
                 'passenger_segment_id' => null,
                 'type' => $type,
                 'crew_name' => $type === BaggageType::Crew && isset($data['crew_name']) ? mb_strtoupper(trim($data['crew_name'])) : null,
+                'rush_passenger_name' => isset($data['passenger_name']) ? mb_strtoupper(trim($data['passenger_name'])) : null,
+                'rush_original_flight' => isset($data['original_flight']) ? mb_strtoupper(trim($data['original_flight'])) : null,
+                'rush_phone' => isset($data['phone']) ? trim($data['phone']) : null,
                 'pieces' => $data['pieces'] ?? 1,
                 'weight_kg' => $data['weight_kg'],
                 'currency' => $flight->airline->currency,
@@ -171,11 +182,21 @@ class BaggageService
             ]);
 
             $cargo = $type === BaggageType::Cargo;
-            $this->createTags($flight, $baggage, $cargo ? self::CARGO_SEQUENCE : self::CREW_SEQUENCE);
+            $this->createTags($flight, $baggage, match ($type) {
+                BaggageType::Cargo => self::CARGO_SEQUENCE,
+                BaggageType::Rush => self::RUSH_SEQUENCE,
+                default => self::CREW_SEQUENCE,
+            });
 
-            $this->logger->log(ActivityChannel::Dcs, $cargo ? 'baggage.cargo_added' : 'baggage.crew_added',
-                ($cargo ? 'Cargo tags: ' : 'Crew bag tags: ').$baggage->tags->pluck('tag_number')->implode(', ')
-                .($baggage->crew_name ? " ({$baggage->crew_name})" : '').($cargo && $baggage->description ? " ({$baggage->description})" : ''), $baggage, $flight);
+            [$action, $label] = match ($type) {
+                BaggageType::Cargo => ['baggage.cargo_added', 'Cargo tags: '],
+                BaggageType::Rush => ['baggage.rush_added', 'Rush tags: '],
+                default => ['baggage.crew_added', 'Crew bag tags: '],
+            };
+            $this->logger->log(ActivityChannel::Dcs, $action,
+                $label.$baggage->tags->pluck('tag_number')->implode(', ')
+                .($baggage->crew_name ? " ({$baggage->crew_name})" : '').($cargo && $baggage->description ? " ({$baggage->description})" : '')
+                .($baggage->rush_passenger_name ? " ({$baggage->rush_passenger_name}, {$baggage->rush_original_flight})" : ''), $baggage, $flight);
 
             return $baggage->load('tags');
         });

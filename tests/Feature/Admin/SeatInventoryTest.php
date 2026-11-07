@@ -197,6 +197,7 @@ class SeatInventoryTest extends TestCase
 
     public function test_agency_allocations_are_limited_by_each_cabin(): void
     {
+        $this->flight->update(['service_type' => 'charter']);
         $payload = fn (array $cabins) => [
             'agency_id' => $this->agency->id, 'outbound_flight_id' => $this->flight->id,
             'seats' => array_sum($cabins), 'cabins' => $cabins,

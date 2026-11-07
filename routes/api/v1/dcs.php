@@ -41,6 +41,7 @@ Route::middleware('can:dcs.checkin')->group(function () {
     Route::post('segments/{segment}/baggage', [Dcs\BaggageController::class, 'store']);
     Route::post('flights/{flight}/crew-baggage', [Dcs\BaggageController::class, 'storeCrew']);
     Route::post('flights/{flight}/cargo', [Dcs\BaggageController::class, 'storeCargo']);
+    Route::post('flights/{flight}/rush', [Dcs\BaggageController::class, 'storeRush']);
     Route::delete('baggage/{checkedBaggage}', [Dcs\BaggageController::class, 'destroy']);
 
     Route::post('flights/{flight}/groups', [Dcs\GroupController::class, 'store']);

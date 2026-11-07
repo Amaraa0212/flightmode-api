@@ -104,7 +104,11 @@ class ManifestService
                 'type' => $b->type->value,
                 'segment_id' => $b->passenger_segment_id,
                 'passenger' => $b->segment ? $b->segment->passenger->last_name.'/'.$b->segment->passenger->first_name
-                    : ($b->type === BaggageType::Cargo ? 'CARGO'.($b->description ? ' '.$b->description : '') : 'CREW'.($b->crew_name ? ' '.$b->crew_name : '')),
+                    : match ($b->type) {
+                        BaggageType::Cargo => 'CARGO'.($b->description ? ' '.$b->description : ''),
+                        BaggageType::Rush => 'RUSH '.$b->rush_passenger_name,
+                        default => 'CREW'.($b->crew_name ? ' '.$b->crew_name : ''),
+                    },
                 'seat_number' => $b->segment?->seat_number,
                 'cabin_class' => $b->segment?->cabin_class->value,
                 'checkin_group_id' => $b->checkin_group_id,
