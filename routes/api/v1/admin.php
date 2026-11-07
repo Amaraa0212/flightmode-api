@@ -14,9 +14,9 @@ use Illuminate\Support\Facades\Route;
 Route::get('dashboard', Admin\DashboardController::class)->middleware('perm:dashboard.view');
 
 // Organisations & access
-Route::apiResource('airlines', Admin\AirlineController::class)->only(['index', 'show'])->middleware('crud:airlines,carriage,lookup');
+Route::apiResource('airlines', Admin\AirlineController::class)->only(['index', 'show'])->middleware('crud:airlines,carriage,bag_tag,lookup');
 Route::apiResource('airlines', Admin\AirlineController::class)->only(['store', 'destroy'])->middleware('crud:airlines');
-Route::put('airlines/{airline}', [Admin\AirlineController::class, 'update'])->middleware('crud:airlines,carriage');
+Route::put('airlines/{airline}', [Admin\AirlineController::class, 'update'])->middleware('crud:airlines,carriage,bag_tag');
 Route::get('airlines/{airline}/agencies', [Admin\AirlineController::class, 'agencies'])->middleware('perm:agency_access.view,airlines.view');
 Route::put('airlines/{airline}/agencies/{agency}', [Admin\AirlineController::class, 'setAgencyContract'])->middleware('perm:agency_access.update');
 Route::delete('airlines/{airline}/agencies/{agency}', [Admin\AirlineController::class, 'removeAgencyContract'])->middleware('perm:agency_access.delete');
@@ -122,8 +122,10 @@ Route::apiResource('flight-series', Admin\FlightSeriesController::class)->parame
 Route::get('flight-board', [Admin\FlightOperationController::class, 'board'])->middleware('perm:flight_manager.view,flight_load.view');
 Route::get('flight-board/calendar', [Admin\FlightOperationController::class, 'calendar'])->middleware('perm:flight_manager.view,flight_load.view');
 Route::get('flights/{flight}/gate-agents/candidates', [Admin\FlightOperationController::class, 'gateAgentCandidates'])->middleware('perm:flight_manager.view');
+// each action checks its own permission
+Route::post('flights/{flight}/status', [Admin\FlightOperationController::class, 'changeStatus'])
+    ->middleware('perm:flight_manager.update,flight_manager.close,flight_manager.cancel,flight_manager.reopen');
 Route::middleware('perm:flight_manager.update')->group(function () {
-    Route::post('flights/{flight}/status', [Admin\FlightOperationController::class, 'changeStatus']);
     Route::put('flights/{flight}/gate', [Admin\FlightOperationController::class, 'setGate']);
     Route::put('flights/{flight}/estimated-departure', [Admin\FlightOperationController::class, 'setEstimatedDeparture']);
     Route::put('flights/{flight}/gate-agents', [Admin\FlightOperationController::class, 'setGateAgents']);
@@ -186,6 +188,7 @@ Route::get('reports/routes', [Admin\ReportController::class, 'routes'])
     ->middleware('perm:traffic_report.view,sales_report.view,station_report.view,dashboard.view');
 Route::get('reports/traffic', [Admin\ReportController::class, 'traffic'])->middleware('perm:traffic_report.view,dashboard.view');
 Route::get('reports/fare-sales', [Admin\ReportController::class, 'fareSales'])->middleware('perm:sales_report.view');
+Route::get('reports/sales-summary', [Admin\ReportController::class, 'salesSummary'])->middleware('perm:sales_summary.view');
 Route::get('reports/online-checkin', [Admin\ReportController::class, 'onlineCheckin'])->middleware('perm:dashboard.view,traffic_report.view');
 Route::get('reports/passenger-search', [Admin\ReportController::class, 'passengerSearch'])->middleware('perm:pax_search.view');
 

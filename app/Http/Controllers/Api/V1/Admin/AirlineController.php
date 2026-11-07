@@ -16,7 +16,7 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 class AirlineController extends Controller
 {
     /** What an airline's own users may change: contacts, plus the settings other screens save here. */
-    private const OWN_FIELDS = ['email', 'phone', 'address', 'logo_path', 'brand_color', 'conditions_of_carriage', 'bag_tag_layout'];
+    private const OWN_FIELDS = ['email', 'phone', 'address', 'logo_path', 'brand_color', 'conditions_of_carriage', 'bag_tag_layout', 'bag_tag_rotation'];
 
     public function index(Request $request): AnonymousResourceCollection
     {

@@ -20,8 +20,7 @@ Broadcast::channel('dcs.flight.{flight}', function (User $user, Flight $flight) 
 | Gate app: the same FlightUpdated events for a flight the agent is assigned to (manifest, boarding, statistics) …
 */
 Broadcast::channel('gate.flight.{flight}', function (User $user, Flight $flight) {
-    return $user->can('gate.access')
-        && ($user->isSystemAdmin() || $flight->gateAgents()->whereKey($user->id)->exists());
+    return $user->can('gate.access') && app(AccessScope::class)->canViewGateFlight($user, $flight);
 });
 
 /*

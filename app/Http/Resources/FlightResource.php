@@ -27,6 +27,7 @@ class FlightResource extends JsonResource
             'flight_series_id' => $this->flight_series_id,
             'is_series_override' => (bool) $this->is_series_override,
             'service_type' => $this->service_type?->value ?? 'scheduled',
+            'no_baggage_rule' => (bool) $this->no_baggage_rule,
             'flight_number' => $this->flight_number,
             'origin' => new AirportResource($this->whenLoaded('origin')),
             'destination' => new AirportResource($this->whenLoaded('destination')),

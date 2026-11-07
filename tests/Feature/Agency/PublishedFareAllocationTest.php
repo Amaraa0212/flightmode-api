@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Agency;
 
+use App\Enums\CabinClass;
 use App\Models\Agency;
 use App\Models\AgencyAllocation;
 use App\Models\Fare;
@@ -12,6 +13,7 @@ use App\Models\FlightSeries;
 use App\Models\PassengerSegment;
 use App\Models\Rbd;
 use App\Services\Allocation\AllocationService;
+use App\Services\Fare\FareQuoteService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\BuildsFlightData;
 use Tests\TestCase;
@@ -128,7 +130,7 @@ class PublishedFareAllocationTest extends TestCase
         $this->assertSame('M', PassengerSegment::query()->latest('id')->value('fare_class'));
 
         // a fixed block lists the fare without booking class seats (its own quota limits it)
-        $this->assertNull(app(\App\Services\Fare\FareQuoteService::class)->forAllocation($this->fixed->refresh())[0]['remaining']);
+        $this->assertNull(app(FareQuoteService::class)->forAllocation($this->fixed->refresh())[0]['remaining']);
 
         // the fixed block sold one M: the pool still has both M seats
         $this->bookPool()->assertCreated();
@@ -141,7 +143,7 @@ class PublishedFareAllocationTest extends TestCase
         $this->m->update(['advance_booking_days' => 10]);
         $this->bookPool()->assertStatus(422)->assertJsonPath('code', 'fare_not_bookable');
         $this->actingAsRole('agency-agent', ['agency_id' => $this->pool->agency_id]);
-        $this->assertSame([], app(\App\Services\Fare\FareQuoteService::class)->forAllocation($this->pool->refresh()));
+        $this->assertSame([], app(FareQuoteService::class)->forAllocation($this->pool->refresh()));
 
         // an upgrade class is never sold
         $this->m->update(['advance_booking_days' => null, 'is_upgrade' => true]);
@@ -183,7 +185,7 @@ class PublishedFareAllocationTest extends TestCase
         $this->postJson('/api/v1/agency/bookings', ['allocation_id' => $this->fixed->id, 'passengers' => [$this->passengerPayload()]])->assertCreated();
 
         $service = app(AllocationService::class);
-        $before = $service->cabinSeatsLeftForAllocations($this->flight, \App\Enums\CabinClass::Economy);
+        $before = $service->cabinSeatsLeftForAllocations($this->flight, CabinClass::Economy);
 
         $this->assertSame(0, $service->releaseUnsold(), 'names still open');
         $this->fixed->update(['deadline' => today()->subDay()]);
@@ -195,14 +197,14 @@ class PublishedFareAllocationTest extends TestCase
         $this->assertSame(1, $this->fixed->cabins->firstWhere('cabin_class.value', 'Y')->seats);
         $this->assertSame(0, $this->fixed->cabins->firstWhere('cabin_class.value', 'C')->seats);
         // the 9 unsold economy seats are free for the pool again
-        $this->assertSame($before + 9, $service->cabinSeatsLeftForAllocations($this->flight, \App\Enums\CabinClass::Economy));
+        $this->assertSame($before + 9, $service->cabinSeatsLeftForAllocations($this->flight, CabinClass::Economy));
         $this->assertSame(0, $service->releaseUnsold(), 'released once');
     }
 
     public function test_series_distribution_sets_every_flight_and_reports_failures(): void
     {
         $series = FlightSeries::create([
-            'airline_id' => $this->airline->id, 'flight_number' => 'TA101', 'origin_airport_id' => $this->ubn->id,
+            'airline_id' => $this->airline->id, 'flight_number' => 'TA101', 'service_type' => 'charter', 'origin_airport_id' => $this->ubn->id,
             'destination_airport_id' => $this->pqc->id, 'departure_time' => '08:00', 'arrival_time' => '14:00',
             'days_of_week' => '1234567', 'period_start' => today(), 'period_end' => today()->addMonth(),
         ]);

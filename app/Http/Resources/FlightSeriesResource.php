@@ -18,6 +18,7 @@ class FlightSeriesResource extends JsonResource
             'inventory_template_id' => $this->inventory_template_id,
             'flight_number' => $this->flight_number,
             'service_type' => $this->service_type ?? 'scheduled',
+            'no_baggage_rule' => (bool) $this->no_baggage_rule,
             'origin_airport_id' => $this->origin_airport_id,
             'destination_airport_id' => $this->destination_airport_id,
             'origin' => $this->whenLoaded('origin', fn () => $this->origin->iata_code),

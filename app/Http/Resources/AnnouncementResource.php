@@ -20,6 +20,7 @@ class AnnouncementResource extends JsonResource
             'title' => $this->title,
             'body' => $this->body,
             'requires_acknowledgement' => $this->requires_acknowledgement,
+            'created_by' => $this->whenLoaded('creator', fn () => $this->creator?->name),
             'created_at' => $this->created_at?->toIso8601String(),
         ];
     }

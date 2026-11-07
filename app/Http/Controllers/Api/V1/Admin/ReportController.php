@@ -21,6 +21,14 @@ class ReportController extends Controller
         ])]);
     }
 
+    /** ?group=agency|month|route */
+    public function salesSummary(Request $request): JsonResponse
+    {
+        $group = $request->validate(['group' => ['nullable', 'in:agency,month,route']])['group'] ?? 'agency';
+
+        return response()->json(['data' => $this->reports->salesSummary($request->user(), $this->filters($request) + ['group' => $group])]);
+    }
+
     public function fareSales(Request $request): JsonResponse
     {
         return response()->json(['data' => $this->reports->fareSales($request->user(), $this->filters($request))]);
@@ -66,6 +74,7 @@ class ReportController extends Controller
             'origin' => ['nullable', 'string', 'size:3'],
             'destination' => ['nullable', 'string', 'size:3'],
             'round_trip' => ['boolean'],
+            'service_type' => ['nullable', 'in:scheduled,charter'],
         ]);
     }
 }

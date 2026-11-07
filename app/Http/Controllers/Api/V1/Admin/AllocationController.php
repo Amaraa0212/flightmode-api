@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Enums\CabinClass;
+use App\Enums\FlightServiceType;
 use App\Exceptions\BusinessRuleException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\AllocationRequest;
@@ -66,6 +67,10 @@ class AllocationController extends Controller
             'remove.*' => ['integer'],
         ]);
 
+        if (collect($data['rows'])->contains(fn (array $row) => empty($row['allocation_id']))) {
+            $this->allocations->assertQuotaFlight($flight);
+        }
+
         $this->board->distribute($flight, $data['rows'], $data['remove'] ?? [], $data['deadline'] ?? null);
 
         return $this->success('Quota saved.', $this->board->overview($flight->refresh()));
@@ -90,6 +95,10 @@ class AllocationController extends Controller
             'rows.*.cabins.*' => ['integer', 'min:0'],
             'rows.*.uses_published_fares' => ['boolean'],
         ]);
+
+        if ($flightSeries->service_type !== FlightServiceType::Charter->value) {
+            throw BusinessRuleException::make('quota_charter_only', 'Quota can be given on charter flights only.');
+        }
 
         $result = $this->board->distributeSeries($flightSeries, $data['date_from'], $data['date_to'], $data['rows'],
             (int) ($data['deadline_days_before'] ?? 1));
@@ -156,6 +165,8 @@ class AllocationController extends Controller
     {
         $flight = Flight::query()->findOrFail($request->integer('outbound_flight_id'));
         $this->access->ensureAirlineOwned($request->user(), $flight);
+        $return = $request->filled('return_flight_id') ? Flight::query()->findOrFail($request->integer('return_flight_id')) : null;
+        $this->allocations->assertQuotaFlight(...array_filter([$flight, $return]));
 
         $allocation = $this->allocations->save($request->validated() + ['airline_id' => $flight->airline_id]);
 

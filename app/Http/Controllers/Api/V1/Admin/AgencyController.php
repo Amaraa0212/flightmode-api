@@ -7,6 +7,7 @@ use App\Http\Requests\Admin\AgencyRequest;
 use App\Http\Resources\AgencyResource;
 use App\Models\Agency;
 use App\Models\User;
+use Closure;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -22,8 +23,14 @@ class AgencyController extends Controller
 {
     public function index(Request $request): AnonymousResourceCollection
     {
+        $user = $request->user();
+        // Agents permission: agencies the airline may contract too, not only those already contracted
+        $query = $request->boolean('for_contract') && $user->airline_id && $user->hasPermission('agency_access.view')
+            ? Agency::query()->where(fn ($o) => $o->whereNull('owner_airline_id')->orWhere('owner_airline_id', $user->airline_id))
+            : $this->visible($user);
+
         return AgencyResource::collection(
-            $this->visible($request->user())->with('airlines')
+            $query->with(['airlines' => $this->ownContracts($user)])
                 ->when($request->filled('search'), fn ($q) => $q->where('name', 'like', '%'.$request->string('search').'%'))
                 ->when($request->filled('channel'), fn ($q) => $q->whereIn('channel', (array) $request->input('channel')))
                 ->when($request->filled('owned'), fn ($q) => $request->boolean('owned') ? $q->whereNotNull('owner_airline_id') : $q->whereNull('owner_airline_id'))
@@ -52,7 +59,7 @@ class AgencyController extends Controller
     {
         $this->ensureVisible($request->user(), $agency);
 
-        return new AgencyResource($agency->load('airlines'));
+        return new AgencyResource($agency->load(['airlines' => $this->ownContracts($request->user())]));
     }
 
     public function update(AgencyRequest $request, Agency $agency): JsonResponse
@@ -60,7 +67,7 @@ class AgencyController extends Controller
         $this->ensureVisible($request->user(), $agency);
         $agency->update($request->validated());
 
-        return $this->success('Agency updated.', new AgencyResource($agency->load('airlines')));
+        return $this->success('Agency updated.', new AgencyResource($agency->load(['airlines' => $this->ownContracts($request->user())])));
     }
 
     public function destroy(Request $request, Agency $agency): JsonResponse
@@ -71,6 +78,12 @@ class AgencyController extends Controller
         $agency->delete();
 
         return $this->deleted('Agency deleted.');
+    }
+
+    /** An airline user sees its own contract of an agency, not those of other airlines. */
+    private function ownContracts(User $user): Closure
+    {
+        return fn ($airlines) => $airlines->when(! $user->isSystemAdmin() && $user->airline_id, fn ($q) => $q->whereKey($user->airline_id));
     }
 
     private function visible(User $user): Builder

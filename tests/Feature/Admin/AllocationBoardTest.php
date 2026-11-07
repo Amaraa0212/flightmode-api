@@ -24,7 +24,7 @@ class AllocationBoardTest extends TestCase
     {
         parent::setUp();
         $this->buildWorld();
-        $this->flight = $this->makeFlight(now()->addDays(5)->setTime(8, 0));
+        $this->flight = $this->makeFlight(now()->addDays(5)->setTime(8, 0), ['service_type' => 'charter']);
         foreach (['second' => 'Second Travel', 'third' => 'Third Travel'] as $key => $name) {
             $this->{$key} = Agency::create(['name' => $name]);
             $this->{$key}->airlines()->attach($this->airline->id, ['is_active' => true]);

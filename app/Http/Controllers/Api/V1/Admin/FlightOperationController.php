@@ -161,13 +161,14 @@ class FlightOperationController extends Controller
             'reason' => ['required_if:action,cancel', 'nullable', 'string', 'max:1000'],
         ]);
 
-        // closing is OCC's, cancelling / reopening the airline administrator's; opening check-in stays with flight_manager.update
+        // closing is OCC's, cancelling and reopening each have their own permission; opening check-in stays with flight_manager.update
         $permission = match ($data['action']) {
             'close_checkin', 'close_gate', 'depart' => 'flight_manager.close',
-            'cancel', 'reopen' => 'flight_manager.cancel',
-            default => null,
+            'cancel' => 'flight_manager.cancel',
+            'reopen' => 'flight_manager.reopen',
+            default => 'flight_manager.update',
         };
-        if ($permission && ! $request->user()->hasPermission($permission)) {
+        if (! $request->user()->hasPermission($permission)) {
             throw new AuthorizationException('You do not have permission for this.');
         }
 
@@ -249,7 +250,7 @@ class FlightOperationController extends Controller
     {
         return User::query()->where('is_active', true)
             ->whereHas('role', fn ($q) => $q->whereIn('scope', [RoleScope::Airline->value, RoleScope::Airport->value]))
-            ->where(fn ($q) => $q->where('airline_id', $flight->airline_id)->orWhere('airport_id', $flight->origin_airport_id))
+            ->where('airline_id', $flight->airline_id)
             ->orderBy('name')
             ->get();
     }

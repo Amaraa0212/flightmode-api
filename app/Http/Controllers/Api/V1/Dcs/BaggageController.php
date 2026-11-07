@@ -46,13 +46,13 @@ class BaggageController extends Controller
     {
         $this->access->ensureFlight($request->user(), $segment->flight);
 
-        // charter: every bag is free — no rule to choose (legacy DCS)
-        $rules = $segment->flight->isCharter() ? collect() : $segment->flight->baggageRules()->where('is_active', true)->get()
+        // "No baggage rule" charter: every bag is free — no rule to choose
+        $rules = $segment->flight->hasNoBaggageRule() ? collect() : $segment->flight->baggageRules()->where('is_active', true)->get()
             ->filter(fn (BaggageRule $r) => $r->cabin_class === null || $r->cabin_class === $segment->cabin_class->value || $r->isSsr(BaggageRule::SSR_FREE))
             ->values();
 
         return response()->json(['data' => [
-            'is_charter' => $segment->flight->isCharter(),
+            'no_baggage_rule' => $segment->flight->hasNoBaggageRule(),
             'rules' => BaggageRuleResource::collection($rules)->resolve(),
             'prepaid_pieces' => (int) $segment->prepaidBaggage()->sum('pieces'),
             'excess_price_per_kg' => $segment->flight->excess_baggage_price_per_kg,
@@ -65,7 +65,7 @@ class BaggageController extends Controller
     {
         $this->access->ensureFlight($request->user(), $segment->flight);
         $data = $request->validate([
-            'baggage_rule_id' => [$segment->flight->isCharter() ? 'nullable' : 'required', 'integer', Rule::exists('baggage_rules', 'id')->where('airline_id', $segment->flight->airline_id)],
+            'baggage_rule_id' => [$segment->flight->hasNoBaggageRule() ? 'nullable' : 'required', 'integer', Rule::exists('baggage_rules', 'id')->where('airline_id', $segment->flight->airline_id)],
             'excess_baggage_rule_id' => ['nullable', 'integer', Rule::exists('baggage_rules', 'id')->where('airline_id', $segment->flight->airline_id)],
             'pieces' => ['required', 'integer', 'min:1', 'max:20'],
             'weight_kg' => ['required', 'numeric', 'min:0.1', 'max:999'],
@@ -82,14 +82,14 @@ class BaggageController extends Controller
     public function quote(Request $request, PassengerSegment $segment): JsonResponse
     {
         $this->access->ensureFlight($request->user(), $segment->flight);
-        $charter = $segment->flight->isCharter();
+        $noRule = $segment->flight->hasNoBaggageRule();
         $data = $request->validate([
-            'baggage_rule_id' => [$charter ? 'nullable' : 'required', 'integer', Rule::exists('baggage_rules', 'id')->where('airline_id', $segment->flight->airline_id)],
+            'baggage_rule_id' => [$noRule ? 'nullable' : 'required', 'integer', Rule::exists('baggage_rules', 'id')->where('airline_id', $segment->flight->airline_id)],
             'pieces' => ['required', 'integer', 'min:1', 'max:20'],
             'weight_kg' => ['required', 'numeric', 'min:0', 'max:999'],
         ]);
 
-        if ($charter) {
+        if ($noRule) {
             return response()->json(['data' => ['free_allowance_kg' => (float) $data['weight_kg'], 'excess_kg' => 0, 'excess_price' => 0,
                 'price' => 0, 'excess_price_per_kg' => 0, 'remaining_allowance_kg' => null, 'currency' => $segment->flight->airline->currency]]);
         }
@@ -128,6 +128,21 @@ class BaggageController extends Controller
         return $this->created('Cargo accepted.', new CheckedBaggageResource($this->baggage->acceptCargo($flight, $data)));
     }
 
+    public function storeRush(Request $request, Flight $flight): JsonResponse
+    {
+        $this->access->ensureFlight($request->user(), $flight);
+        $data = $request->validate([
+            'passenger_name' => ['required', 'string', 'max:100'],
+            'original_flight' => ['required', 'string', 'max:50'],
+            'phone' => ['required', 'string', 'max:50'],
+            'pieces' => ['nullable', 'integer', 'min:1', 'max:20'],
+            'weight_kg' => ['required', 'numeric', 'min:0.1', 'max:999'],
+            'description' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        return $this->created('Rush bag accepted.', new CheckedBaggageResource($this->baggage->acceptRush($flight, $data)));
+    }
+
     public function destroy(Request $request, CheckedBaggage $checkedBaggage): JsonResponse
     {
         $this->access->ensureFlight($request->user(), $checkedBaggage->flight);
@@ -154,16 +169,24 @@ class BaggageController extends Controller
                 'iata_code' => $flight->airline->iata_code,
                 'logo_url' => $flight->airline->logoUrl(),
                 'layout' => $flight->airline->bag_tag_layout,
+                'bag_tag_rotation' => (int) $flight->airline->bag_tag_rotation,
             ],
             'flight_number' => $flight->flight_number,
             'date' => $flight->departureAt()->copy()->timezone($flight->origin->timezone)->format('dM'),
             'origin' => $flight->origin->iata_code,
             'destination' => ['code' => $flight->destination->iata_code, 'city' => $flight->destination->city, 'name' => $flight->destination->name],
             'passenger' => $passenger ? $passenger->last_name.'/'.$passenger->first_name
-                : ($baggage->type === BaggageType::Cargo ? 'CARGO' : ($baggage->crew_name ? 'CREW '.$baggage->crew_name : 'CREW')),
+                : match ($baggage->type) {
+                    BaggageType::Cargo => 'CARGO',
+                    BaggageType::Rush => (string) $baggage->rush_passenger_name,
+                    default => $baggage->crew_name ? 'CREW '.$baggage->crew_name : 'CREW',
+                },
             'passenger_title' => $passenger ? ($passenger->gender === Gender::Female ? 'MRS' : 'MR') : null,
             'is_crew' => $baggage->type === BaggageType::Crew,
             'is_cargo' => $baggage->type === BaggageType::Cargo,
+            'is_rush' => $baggage->type === BaggageType::Rush,
+            'original_flight' => $baggage->rush_original_flight,
+            'phone' => $baggage->rush_phone,
             'description' => $baggage->type === BaggageType::Cargo ? $baggage->description : null,
             'pnr' => $passenger?->booking?->pnr,
             'piece' => $baggage->tags()->where('sequence', '<=', $tag->sequence)->count().'/'.$baggage->pieces,

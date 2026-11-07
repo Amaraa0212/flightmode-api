@@ -16,6 +16,7 @@ class FlightSeriesRequest extends FormRequest
             'inventory_template_id' => ['nullable', 'integer', 'exists:inventory_templates,id'],
             'flight_number' => ['required', 'string', 'max:10'],
             'service_type' => ['sometimes', Rule::enum(FlightServiceType::class)],
+            'no_baggage_rule' => ['boolean'],
             'origin_airport_id' => ['required', 'integer', 'exists:airports,id'],
             'destination_airport_id' => ['required', 'integer', 'exists:airports,id', 'different:origin_airport_id'],
             'period_start' => ['required', 'date'],

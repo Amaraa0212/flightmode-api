@@ -315,6 +315,7 @@ Broadcasting (Laravel Reverb): `POST /api/broadcasting/auth` — Sanctum Bearer,
 | POST | `/api/v1/dcs/flights/{flight}/close` | dcs.checkin | FlightController@close |
 | POST | `/api/v1/dcs/flights/{flight}/crew-baggage` | dcs.checkin | BaggageController@storeCrew |
 | POST | `/api/v1/dcs/flights/{flight}/cargo` | dcs.checkin | BaggageController@storeCargo |
+| POST | `/api/v1/dcs/flights/{flight}/rush` | dcs.checkin | BaggageController@storeRush |
 | GET | `/api/v1/dcs/flights/{flight}/documents/manifest` | dcs.access | FlightDocumentController@manifest |
 | POST | `/api/v1/dcs/flights/{flight}/groups` | dcs.checkin | GroupController@store |
 | POST | `/api/v1/dcs/flights/{flight}/open` | dcs.checkin | FlightController@open |

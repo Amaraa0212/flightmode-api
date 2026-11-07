@@ -26,6 +26,7 @@ class AirlineResource extends JsonResource
             'conditions_of_carriage' => $this->conditions_of_carriage,
             'updated_at' => $this->updated_at?->toIso8601String(),
             'bag_tag_layout' => $this->bag_tag_layout,
+            'bag_tag_rotation' => (int) $this->bag_tag_rotation,
             'currency' => $this->currency,
             'is_active' => $this->is_active,
             'agencies' => AgencyResource::collection($this->whenLoaded('agencies')),

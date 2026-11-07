@@ -485,6 +485,16 @@ class AllocationService
             ->whereHas('passenger', fn ($q) => $q->whereNull('infant_of_passenger_id'));
     }
 
+    /** New quota is given on charter flights only; quota already on a scheduled flight keeps working. */
+    public function assertQuotaFlight(Flight ...$flights): void
+    {
+        foreach ($flights as $flight) {
+            if (! $flight->isCharter()) {
+                throw BusinessRuleException::make('quota_charter_only', "Quota can be given on charter flights only ({$flight->flight_number} is scheduled).");
+            }
+        }
+    }
+
     private function assertAgencyContracted(int $agencyId, int $airlineId): void
     {
         $contracted = DB::table('agency_airline')->where('agency_id', $agencyId)->where('airline_id', $airlineId)

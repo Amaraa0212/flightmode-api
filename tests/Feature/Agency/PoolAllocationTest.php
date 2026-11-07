@@ -103,6 +103,7 @@ class PoolAllocationTest extends TestCase
 
     public function test_admin_creates_a_pool_allocation_without_seats(): void
     {
+        $this->flight->update(['service_type' => 'charter']);
         $agency = Agency::create(['name' => 'Pool C']);
         $agency->airlines()->attach($this->airline->id, ['is_active' => true]);
         $this->actingAsRole('airline-admin');

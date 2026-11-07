@@ -10,6 +10,7 @@ use App\Http\Resources\FlightResource;
 use App\Http\Resources\SegmentResource;
 use App\Models\Flight;
 use App\Models\PassengerSegment;
+use App\Services\Access\AccessScope;
 use App\Services\Checkin\BoardingPassService;
 use App\Services\Checkin\CheckinService;
 use App\Services\Flight\FlightStatistics;
@@ -18,22 +19,19 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
-/** Gate (boarding) app: the flights a gate agent is assigned to, boarding by scan, offloading. */
+/** Gate (boarding) app: the flights a gate agent is assigned to (gate.view_all also reads the others), boarding by scan, offloading. */
 class GateController extends Controller
 {
     public function __construct(
         private readonly CheckinService $checkin,
         private readonly BoardingPassService $boardingPasses,
         private readonly FlightStatistics $statistics,
+        private readonly AccessScope $access,
     ) {}
 
     public function flights(Request $request): AnonymousResourceCollection
     {
-        $flights = $request->user()->isSystemAdmin()
-            ? Flight::query()
-            : Flight::query()->whereHas('gateAgents', fn ($q) => $q->whereKey($request->user()->id));
-
-        return FlightResource::collection($flights->with(['airline', 'aircraft', 'origin', 'destination'])
+        return FlightResource::collection($this->access->gateFlights(Flight::query(), $request->user())->with(['airline', 'aircraft', 'origin', 'destination'])
             ->whereNotIn('status', [FlightStatus::Departed->value, FlightStatus::Cancelled->value])
             ->upcoming(24)
             ->orderBy('scheduled_departure_at')
@@ -42,7 +40,7 @@ class GateController extends Controller
 
     public function show(Request $request, Flight $flight): JsonResponse
     {
-        $this->ensureAssigned($request, $flight);
+        $this->ensureCanView($request, $flight);
 
         return response()->json(['data' => [
             'flight' => (new FlightResource($flight->load(['airline', 'aircraft', 'origin', 'destination'])))->resolve(),
@@ -53,7 +51,7 @@ class GateController extends Controller
     /** ?state=checked_in|boarded&search= */
     public function passengers(Request $request, Flight $flight): AnonymousResourceCollection
     {
-        $this->ensureAssigned($request, $flight);
+        $this->ensureCanView($request, $flight);
         $term = trim((string) $request->input('search'));
         $states = match ($request->input('state')) {
             'boarded' => [SegmentStatus::Boarded],
@@ -117,6 +115,13 @@ class GateController extends Controller
     {
         $user = $request->user();
         if (! $user->isSystemAdmin() && ! $flight->gateAgents()->whereKey($user->id)->exists()) {
+            throw new AuthorizationException('You are not assigned to this flight.');
+        }
+    }
+
+    private function ensureCanView(Request $request, Flight $flight): void
+    {
+        if (! $this->access->canViewGateFlight($request->user(), $flight)) {
             throw new AuthorizationException('You are not assigned to this flight.');
         }
     }

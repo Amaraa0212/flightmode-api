@@ -20,7 +20,12 @@ class AnnouncementController extends Controller
     {
         return AnnouncementResource::collection(
             $this->access->airlineOwned(Announcement::query(), $request->user())
-                ->with(['airline', 'agency'])->latest('id')->paginate($request->integer('per_page', 50))
+                ->with(['airline', 'agency', 'creator:id,name'])
+                ->when($request->filled('search'), fn ($q) => $q->where(fn ($x) => $x
+                    ->where('title', 'like', '%'.$request->string('search').'%')
+                    ->orWhere('body', 'like', '%'.$request->string('search').'%')))
+                ->when($request->filled('requires_acknowledgement'), fn ($q) => $q->where('requires_acknowledgement', $request->boolean('requires_acknowledgement')))
+                ->latest('id')->paginate($request->integer('per_page', 50))
         );
     }
 

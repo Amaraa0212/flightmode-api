@@ -25,6 +25,9 @@ class FlightRequest extends FormRequest
             'gate' => ['nullable', 'string', 'max:10'],
             'is_published' => ['boolean'],
             'service_type' => ['sometimes', Rule::enum(FlightServiceType::class)],
+            'no_baggage_rule' => ['boolean'],
+            // saving a new time or aircraft: tell the airline's staff and agencies
+            'notify_change' => ['boolean'],
             'excess_baggage_max_kg' => ['nullable', 'numeric', 'min:0'],
             'excess_baggage_price_per_kg' => ['nullable', 'numeric', 'min:0'],
         ];
@@ -37,7 +40,7 @@ class FlightRequest extends FormRequest
      */
     public function flightData(): array
     {
-        $data = collect($this->validated())->except('airline_id');
+        $data = collect($this->validated())->except(['airline_id', 'notify_change']);
         foreach (['scheduled_departure_at', 'scheduled_arrival_at'] as $field) {
             if ($data->has($field)) {
                 $data[$field] = Carbon::parse($data[$field])->utc();
