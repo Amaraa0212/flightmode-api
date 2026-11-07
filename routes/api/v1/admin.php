@@ -188,6 +188,7 @@ Route::get('reports/routes', [Admin\ReportController::class, 'routes'])
     ->middleware('perm:traffic_report.view,sales_report.view,station_report.view,dashboard.view');
 Route::get('reports/traffic', [Admin\ReportController::class, 'traffic'])->middleware('perm:traffic_report.view,dashboard.view');
 Route::get('reports/fare-sales', [Admin\ReportController::class, 'fareSales'])->middleware('perm:sales_report.view');
+Route::get('reports/sales-summary', [Admin\ReportController::class, 'salesSummary'])->middleware('perm:sales_summary.view');
 Route::get('reports/online-checkin', [Admin\ReportController::class, 'onlineCheckin'])->middleware('perm:dashboard.view,traffic_report.view');
 Route::get('reports/passenger-search', [Admin\ReportController::class, 'passengerSearch'])->middleware('perm:pax_search.view');
 

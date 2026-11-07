@@ -3,6 +3,7 @@
 namespace App\Services\Reports;
 
 use App\Enums\CheckinChannel;
+use App\Enums\FlightServiceType;
 use App\Enums\FlightStatus;
 use App\Enums\SegmentStatus;
 use App\Models\Flight;
@@ -23,7 +24,10 @@ class ReportService
     /**
      * Per flight: booked / flown / no-show / go-show / online check-in / baggage (legacy "traffic summary" & "station report").
      *
-     * @param  array{from?: ?string, to?: ?string, origin?: ?string, destination?: ?string, round_trip?: bool, departed_only?: bool}  $filters
+     * Passengers checked in but not scanned at the gate count as flown once the gate closed (airlines that do not scan
+     * would otherwise be paid short); `not_scanned` tells how many, so those flights can be told apart.
+     *
+     * @param  array{from?: ?string, to?: ?string, origin?: ?string, destination?: ?string, round_trip?: bool, departed_only?: bool, service_type?: ?string}  $filters
      * @return Collection<int, array<string, mixed>>
      */
     public function traffic(User $user, array $filters): Collection
@@ -41,6 +45,7 @@ class ReportService
             ->select('flight_id')
             ->selectRaw('COUNT(*) as booked')
             ->selectRaw('SUM(CASE WHEN status IN (?, ?) THEN 1 ELSE 0 END) as flown', [SegmentStatus::Boarded->value, SegmentStatus::Flown->value])
+            ->selectRaw('SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as checked_in', [SegmentStatus::CheckedIn->value])
             ->selectRaw('SUM(CASE WHEN is_go_show = 1 THEN 1 ELSE 0 END) as go_show')
             ->selectRaw('SUM(CASE WHEN checkin_channel = ? THEN 1 ELSE 0 END) as online_checkin', [CheckinChannel::Online->value])
             ->groupBy('flight_id')
@@ -54,9 +59,11 @@ class ReportService
             $c = $counts->get($flight->id);
             $b = $baggage->get($flight->id);
             $booked = (int) ($c->booked ?? 0);
-            $flown = (int) ($c->flown ?? 0);
-            $online = (int) ($c->online_checkin ?? 0);
             $departed = $flight->status === FlightStatus::Departed;
+            $closed = $departed || $flight->status === FlightStatus::GateClosed;
+            $notScanned = $closed ? (int) ($c->checked_in ?? 0) : 0;
+            $flown = (int) ($c->flown ?? 0) + $notScanned;
+            $online = (int) ($c->online_checkin ?? 0);
 
             return [
                 'flight_id' => $flight->id,
@@ -68,6 +75,8 @@ class ReportService
                 'capacity' => (int) $flight->aircraft?->total_seats,
                 'booked' => $booked,
                 'flown' => $flown,
+                'not_scanned' => $notScanned,
+                'service_type' => $flight->service_type?->value ?? 'scheduled',
                 'no_show' => $departed ? max(0, $booked - $flown) : null,
                 'go_show' => (int) ($c->go_show ?? 0),
                 'online_checkin' => $online,
@@ -77,6 +86,52 @@ class ReportService
                 'baggage_weight_kg' => (float) ($b->weight ?? 0),
             ];
         })->values();
+    }
+
+    /**
+     * Issued tickets on the airline's scheduled flights by agent, month of booking or route. Charter flights are left out.
+     *
+     * @param  array{from?: ?string, to?: ?string, origin?: ?string, destination?: ?string, group: string}  $filters
+     * @return Collection<int, array<string, mixed>>
+     */
+    public function salesSummary(User $user, array $filters): Collection
+    {
+        $from = isset($filters['from']) ? Carbon::parse($filters['from'])->startOfDay() : now()->startOfMonth();
+        $to = isset($filters['to']) ? Carbon::parse($filters['to'])->endOfDay() : now()->endOfMonth();
+
+        $flights = $this->route($this->access->flights(Flight::query(), $user), $filters)
+            ->where('service_type', '!=', FlightServiceType::Charter->value)
+            ->select('flights.id');
+
+        $rows = PassengerSegment::query()
+            ->join('flights', 'flights.id', '=', 'passenger_segments.flight_id')
+            ->join('airports as origin', 'origin.id', '=', 'flights.origin_airport_id')
+            ->join('airports as destination', 'destination.id', '=', 'flights.destination_airport_id')
+            ->join('passengers', 'passengers.id', '=', 'passenger_segments.passenger_id')
+            ->join('bookings', 'bookings.id', '=', 'passengers.booking_id')
+            ->leftJoin('agencies', 'agencies.id', '=', 'bookings.agency_id')
+            ->whereIn('passenger_segments.flight_id', $flights)
+            ->whereBetween('bookings.created_at', [$from, $to])
+            ->whereNotNull('passenger_segments.ticket_number')
+            ->where('passenger_segments.status', '!=', SegmentStatus::Cancelled->value)
+            ->get(['agencies.name as agency', 'bookings.created_at as booked_at', 'origin.iata_code as origin', 'destination.iata_code as destination',
+                'passenger_segments.fare_amount', 'passenger_segments.tax_amount', 'passenger_segments.currency']);
+
+        $key = match ($filters['group']) {
+            'month' => fn ($r) => Carbon::parse($r->booked_at)->format('Y-m'),
+            'route' => fn ($r) => $r->origin.'-'.$r->destination,
+            default => fn ($r) => $r->agency ?? 'Direct',
+        };
+
+        return $rows->groupBy(fn ($r) => $key($r).'|'.$r->currency)
+            ->map(function (Collection $group) use ($key) {
+                $fare = (float) $group->sum('fare_amount');
+                $tax = (float) $group->sum('tax_amount');
+
+                return ['key' => $key($group->first()), 'currency' => $group->first()->currency, 'tickets' => $group->count(),
+                    'fare_total' => $fare, 'tax_total' => $tax, 'total' => $fare + $tax];
+            })
+            ->sortBy('key')->values();
     }
 
     /**
@@ -195,22 +250,30 @@ class ReportService
         $to = isset($filters['to']) ? Carbon::parse($filters['to'])->endOfDay() : now()->endOfMonth();
 
         $query = $this->access->flights(Flight::query(), $user)
-            ->whereBetween('flights.scheduled_departure_at', [$from, $to]);
+            ->whereBetween('flights.scheduled_departure_at', [$from, $to])
+            ->when($filters['service_type'] ?? null, fn (Builder $q, string $type) => $q->where('service_type', $type));
 
-        $origin = $filters['origin'] ?? null;
-        $destination = $filters['destination'] ?? null;
+        return $this->route($query, $filters);
+    }
 
-        if ($origin && $destination) {
-            $ids = fn ($code) => DB::table('airports')->where('iata_code', strtoupper($code))->value('id');
-            [$o, $d] = [$ids($origin), $ids($destination)];
-            $query->where(function (Builder $q) use ($o, $d, $filters) {
-                $q->where(fn ($x) => $x->where('origin_airport_id', $o)->where('destination_airport_id', $d));
-                if ($filters['round_trip'] ?? false) {
-                    $q->orWhere(fn ($x) => $x->where('origin_airport_id', $d)->where('destination_airport_id', $o));
-                }
-            });
+    /** One end or both of a route; round_trip also takes the opposite direction. */
+    private function route(Builder $query, array $filters): Builder
+    {
+        $id = fn (?string $code) => $code ? DB::table('airports')->where('iata_code', strtoupper($code))->value('id') ?? 0 : null;
+        [$origin, $destination] = [$id($filters['origin'] ?? null), $id($filters['destination'] ?? null)];
+        if (! $origin && ! $destination) {
+            return $query;
         }
 
-        return $query;
+        $leg = fn (Builder $q, ?int $from, ?int $to) => $q
+            ->when($from, fn ($x) => $x->where('origin_airport_id', $from))
+            ->when($to, fn ($x) => $x->where('destination_airport_id', $to));
+
+        return $query->where(function (Builder $q) use ($leg, $origin, $destination, $filters) {
+            $q->where(fn ($x) => $leg($x, $origin, $destination));
+            if ($filters['round_trip'] ?? false) {
+                $q->orWhere(fn ($x) => $leg($x, $destination, $origin));
+            }
+        });
     }
 }

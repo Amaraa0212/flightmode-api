@@ -107,6 +107,7 @@ final class MenuCatalog
                     ['key' => 'traffic_report', 'name' => 'Traffic & PAX summary', 'path' => '/reports/traffic', 'actions' => ['view']],
                     ['key' => 'pnl_report', 'name' => 'PNL report', 'path' => '/reports/pnl', 'actions' => ['view']],
                     ['key' => 'sales_report', 'name' => 'Sales report', 'path' => '/reports/sales', 'actions' => ['view']],
+                    ['key' => 'sales_summary', 'name' => 'Sales summary', 'path' => '/reports/sales-summary', 'actions' => ['view']],
                     ['key' => 'station_report', 'name' => 'Station report', 'path' => '/reports/station', 'actions' => ['view']],
                     ['key' => 'fare_info', 'name' => 'Fare info', 'path' => '/reports/fare-info', 'actions' => ['view']],
                 ]],
@@ -178,7 +179,7 @@ final class MenuCatalog
             'bookings.view' => ['bookings.view'],
             'bookings.manage' => ['bookings.create', 'bookings.update', 'bookings.delete'],
             'reports.view' => [
-                'traffic_report.view', 'pnl_report.view', 'sales_report.view', 'station_report.view',
+                'traffic_report.view', 'pnl_report.view', 'sales_report.view', 'sales_summary.view', 'station_report.view',
                 'pax_search.view', 'manifest.view', 'manifest.export',
             ],
             'activity_logs.view' => ['activity_logs.view'],

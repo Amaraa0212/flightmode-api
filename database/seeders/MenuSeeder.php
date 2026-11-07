@@ -24,6 +24,7 @@ class MenuSeeder extends Seeder
     private const SPLIT_OFF = [
         'flight_manager.reopen' => 'flight_manager.cancel',
         'gate.view_all' => 'airline-admin',
+        'sales_summary.view' => 'sales_report.view',
     ];
 
     public function run(): void
