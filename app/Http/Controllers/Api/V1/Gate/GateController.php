@@ -10,6 +10,7 @@ use App\Http\Resources\FlightResource;
 use App\Http\Resources\SegmentResource;
 use App\Models\Flight;
 use App\Models\PassengerSegment;
+use App\Services\Access\AccessScope;
 use App\Services\Checkin\BoardingPassService;
 use App\Services\Checkin\CheckinService;
 use App\Services\Flight\FlightStatistics;
@@ -18,22 +19,19 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
-/** Gate (boarding) app: the flights a gate agent is assigned to, boarding by scan, offloading. */
+/** Gate (boarding) app: the flights a gate agent is assigned to (or all, with gate.view_all), boarding by scan, offloading. */
 class GateController extends Controller
 {
     public function __construct(
         private readonly CheckinService $checkin,
         private readonly BoardingPassService $boardingPasses,
         private readonly FlightStatistics $statistics,
+        private readonly AccessScope $access,
     ) {}
 
     public function flights(Request $request): AnonymousResourceCollection
     {
-        $flights = $request->user()->isSystemAdmin()
-            ? Flight::query()
-            : Flight::query()->whereHas('gateAgents', fn ($q) => $q->whereKey($request->user()->id));
-
-        return FlightResource::collection($flights->with(['airline', 'aircraft', 'origin', 'destination'])
+        return FlightResource::collection($this->access->gateFlights(Flight::query(), $request->user())->with(['airline', 'aircraft', 'origin', 'destination'])
             ->whereNotIn('status', [FlightStatus::Departed->value, FlightStatus::Cancelled->value])
             ->upcoming(24)
             ->orderBy('scheduled_departure_at')
@@ -115,8 +113,7 @@ class GateController extends Controller
 
     private function ensureAssigned(Request $request, Flight $flight): void
     {
-        $user = $request->user();
-        if (! $user->isSystemAdmin() && ! $flight->gateAgents()->whereKey($user->id)->exists()) {
+        if (! $this->access->canUseGateOn($request->user(), $flight)) {
             throw new AuthorizationException('You are not assigned to this flight.');
         }
     }

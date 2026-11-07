@@ -3,14 +3,19 @@
 namespace Tests\Feature\Admin;
 
 use App\Enums\BookingSource;
+use App\Enums\RoleScope;
 use App\Models\Airline;
 use App\Models\BaggageRule;
 use App\Models\Flight;
 use App\Models\PassengerSegment;
+use App\Models\Permission;
+use App\Models\Role;
 use App\Models\SeatPrice;
+use App\Models\User;
 use App\Services\Booking\BookingService;
 use App\Services\Flight\FlightStatistics;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\BuildsFlightData;
 use Tests\TestCase;
 
@@ -227,5 +232,29 @@ class CharterAndProductsTest extends TestCase
 
         $this->assertNotSoftDeleted($flights[0]);
         $this->assertSoftDeleted($flights[1]);
+    }
+
+    public function test_reopening_a_flight_has_its_own_permission(): void
+    {
+        $flight = $this->makeFlight(now()->addHours(3));
+        $flight->update(['status' => 'checkin_closed']);
+        $status = fn (string $action) => $this->postJson("/api/v1/admin/flights/{$flight->id}/status", ['action' => $action, 'reason' => 'x']);
+
+        $role = Role::create(['name' => 'Cancel only', 'slug' => 'cancel-only', 'scope' => RoleScope::Airline]);
+        $role->permissions()->sync(Permission::query()->where('key', 'flight_manager.cancel')->pluck('id'));
+        Sanctum::actingAs(User::factory()->create(['role_id' => $role->id, 'airline_id' => $this->airline->id]));
+        $status('reopen')->assertForbidden();
+        $status('open_checkin')->assertForbidden();
+
+        $role->permissions()->sync(Permission::query()->where('key', 'flight_manager.reopen')->pluck('id'));
+        Sanctum::actingAs(User::factory()->create(['role_id' => $role->id, 'airline_id' => $this->airline->id]));
+        $status('cancel')->assertForbidden();
+        $status('reopen')->assertOk();
+        $this->assertSame('checkin_open', $flight->fresh()->status->value);
+
+        // the airline administrator keeps both
+        $flight->fresh()->update(['status' => 'checkin_closed']);
+        $this->actingAsRole('airline-admin');
+        $status('reopen')->assertOk();
     }
 }

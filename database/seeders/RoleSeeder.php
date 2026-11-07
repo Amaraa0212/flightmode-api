@@ -23,7 +23,7 @@ class RoleSeeder extends Seeder
                 'dashboard.view', 'airlines.manage', 'agencies.manage', 'users.manage', 'roles.manage', 'aircraft.manage', 'fares.manage',
                 'products.manage', 'flights.view', 'flights.manage', 'flights.operate', 'flights.cancel', 'seat_blocks.manage',
                 'allocations.manage', 'agency_accounts.manage', 'inventory.view', 'inventory.manage', 'bookings.view', 'bookings.manage', 'reports.view', 'activity_logs.view', 'issue_reports.view', 'issue_reports.manage',
-                'announcements.manage', 'charters.view', 'charters.manage', 'dcs.access', 'dcs.checkin', 'gate.access',
+                'announcements.manage', 'charters.view', 'charters.manage', 'dcs.access', 'dcs.checkin', 'gate.access', 'gate.view_all',
             ]],
             ['slug' => 'airline-staff', 'name' => 'Airline staff', 'scope' => RoleScope::Airline, 'permissions' => [
                 'dashboard.view', 'flights.view', 'flights.operate', 'seat_blocks.manage', 'allocations.manage', 'inventory.view',

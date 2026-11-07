@@ -58,7 +58,7 @@ final class MenuCatalog
             ['name' => 'DCS', 'menus' => [
                 ['key' => 'flight_manager', 'name' => 'Flight manager', 'icon' => 'TowerControl', 'path' => '/dcs/flight-manager', 'actions' => [
                     'view' => 'View', 'update' => 'Open check-in, gate, ETD, gate agents',
-                    'close' => 'Close check-in / gate, depart (OCC)', 'cancel' => 'Cancel / reopen flights',
+                    'close' => 'Close check-in / gate, depart (OCC)', 'cancel' => 'Cancel flights', 'reopen' => 'Reopen closed flights',
                 ]],
                 ['key' => 'seat_blocks', 'name' => 'Seat block', 'icon' => 'Map', 'path' => '/dcs/seat-block', 'actions' => ['view', 'create', 'delete']],
                 ['key' => 'manifest', 'name' => 'Manifest', 'icon' => 'ClipboardList', 'path' => '/dcs/manifest', 'actions' => ['view', 'export' => 'E-mail documents']],
@@ -129,7 +129,7 @@ final class MenuCatalog
                 ['key' => 'dcs', 'name' => 'DCS app', 'icon' => 'MonitorCheck', 'actions' => [
                     'access' => 'View', 'checkin' => 'Check-in, baggage, open / close counter',
                 ]],
-                ['key' => 'gate', 'name' => 'Gate app', 'icon' => 'DoorOpen', 'actions' => ['access' => 'Gate app']],
+                ['key' => 'gate', 'name' => 'Gate app', 'icon' => 'DoorOpen', 'actions' => ['access' => 'Gate app', 'view_all' => 'All flights, without being assigned']],
             ]],
         ];
     }
@@ -166,7 +166,7 @@ final class MenuCatalog
             'flights.manage' => ['flights.create', 'flights.update', 'flights.delete', ...$all('flight_series')],
             'flights.operate' => ['flight_manager.view', 'flight_manager.update'],
             'flights.close' => ['flight_manager.close'],
-            'flights.cancel' => ['flight_manager.cancel'],
+            'flights.cancel' => ['flight_manager.cancel', 'flight_manager.reopen'],
             'seat_blocks.manage' => ['seat_blocks.view', 'seat_blocks.create', 'seat_blocks.delete'],
             'allocations.manage' => $all('allocations'),
             'agency_accounts.manage' => ['agency_accounts.view', 'agency_accounts.create'],
@@ -191,6 +191,7 @@ final class MenuCatalog
             'dcs.access' => ['dcs.access'],
             'dcs.checkin' => ['dcs.checkin'],
             'gate.access' => ['gate.access'],
+            'gate.view_all' => ['gate.view_all'],
         ];
     }
 

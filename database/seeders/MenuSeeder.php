@@ -20,10 +20,17 @@ use Illuminate\Support\Facades\DB;
  */
 class MenuSeeder extends Seeder
 {
+    /** New permission => the permission (or role slug) that gets it on first seed */
+    private const SPLIT_OFF = [
+        'flight_manager.reopen' => 'flight_manager.cancel',
+        'gate.view_all' => 'airline-admin',
+    ];
+
     public function run(): void
     {
         DB::transaction(function () {
             $legacyGrants = $this->legacyGrants();
+            $known = Permission::query()->pluck('key')->all();
 
             foreach (MenuCatalog::groups() as $groupOrder => $definition) {
                 $group = MenuGroup::query()->firstOrCreate(['name' => $definition['name']], ['order' => $groupOrder + 1]);
@@ -35,7 +42,30 @@ class MenuSeeder extends Seeder
             foreach ($legacyGrants as $roleId => $keys) {
                 Role::query()->find($roleId)?->permissions()->sync(Permission::query()->whereIn('key', $keys)->pluck('id'));
             }
+
+            $this->grantNewActions($known);
         });
+    }
+
+    /**
+     * Actions split off an existing one, once when they first appear: whoever could do it keeps being able to.
+     *
+     * @param  list<string>  $known  permission keys before this run
+     */
+    private function grantNewActions(array $known): void
+    {
+        foreach (self::SPLIT_OFF as $key => $from) {
+            if (in_array($key, $known, true)) {
+                continue;
+            }
+            $id = Permission::query()->where('key', $key)->value('id');
+            $roles = Role::query()->when(
+                str_contains($from, '.'),
+                fn ($q) => $q->whereHas('permissions', fn ($p) => $p->where('key', $from)),
+                fn ($q) => $q->where('slug', $from),
+            )->get();
+            $roles->each(fn (Role $role) => $role->permissions()->syncWithoutDetaching([$id]));
+        }
     }
 
     /** @param list<array<string, mixed>> $menus */

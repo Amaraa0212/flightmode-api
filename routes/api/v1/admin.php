@@ -122,8 +122,10 @@ Route::apiResource('flight-series', Admin\FlightSeriesController::class)->parame
 Route::get('flight-board', [Admin\FlightOperationController::class, 'board'])->middleware('perm:flight_manager.view,flight_load.view');
 Route::get('flight-board/calendar', [Admin\FlightOperationController::class, 'calendar'])->middleware('perm:flight_manager.view,flight_load.view');
 Route::get('flights/{flight}/gate-agents/candidates', [Admin\FlightOperationController::class, 'gateAgentCandidates'])->middleware('perm:flight_manager.view');
+// each action checks its own permission
+Route::post('flights/{flight}/status', [Admin\FlightOperationController::class, 'changeStatus'])
+    ->middleware('perm:flight_manager.update,flight_manager.close,flight_manager.cancel,flight_manager.reopen');
 Route::middleware('perm:flight_manager.update')->group(function () {
-    Route::post('flights/{flight}/status', [Admin\FlightOperationController::class, 'changeStatus']);
     Route::put('flights/{flight}/gate', [Admin\FlightOperationController::class, 'setGate']);
     Route::put('flights/{flight}/estimated-departure', [Admin\FlightOperationController::class, 'setEstimatedDeparture']);
     Route::put('flights/{flight}/gate-agents', [Admin\FlightOperationController::class, 'setGateAgents']);

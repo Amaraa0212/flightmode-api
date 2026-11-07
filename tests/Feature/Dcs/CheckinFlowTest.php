@@ -3,12 +3,18 @@
 namespace Tests\Feature\Dcs;
 
 use App\Enums\BookingSource;
+use App\Enums\RoleScope;
 use App\Enums\SegmentStatus;
+use App\Models\Airline;
 use App\Models\BaggageRule;
 use App\Models\Flight;
 use App\Models\PassengerSegment;
+use App\Models\Permission;
+use App\Models\Role;
+use App\Models\User;
 use App\Services\Booking\BookingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\BuildsFlightData;
 use Tests\TestCase;
 
@@ -158,6 +164,27 @@ class CheckinFlowTest extends TestCase
         $this->postJson("/api/v1/gate/segments/{$segment->id}/offload", ['type' => 'medical', 'reason' => 'Sick'])->assertOk();
         $this->assertSame(SegmentStatus::CheckedIn, $segment->fresh()->status);
         $this->assertSame('medical', $segment->fresh()->offload_type);
+    }
+
+    public function test_gate_view_all_permission_sees_the_airlines_flights_without_being_assigned(): void
+    {
+        $this->flight->update(['scheduled_departure_at' => now()->addHours(3)]);
+        $other = Airline::create(['name' => 'Other Air', 'iata_code' => 'OT', 'numeric_code' => '456']);
+        $foreign = $this->makeFlight(now()->addHours(3), ['airline_id' => $other->id, 'flight_number' => 'OT1']);
+
+        $this->actingAsRole('gate-agent');
+        $this->getJson('/api/v1/gate/flights')->assertOk()->assertJsonCount(0, 'data');
+        $this->getJson("/api/v1/gate/flights/{$this->flight->id}")->assertForbidden();
+
+        $role = Role::create(['name' => 'Gate lead', 'slug' => 'gate-lead', 'scope' => RoleScope::Airline]);
+        $role->permissions()->sync(Permission::query()->whereIn('key', ['gate.access', 'gate.view_all'])->pluck('id'));
+        Sanctum::actingAs(User::factory()->create(['role_id' => $role->id, 'airline_id' => $this->airline->id]));
+
+        $ids = collect($this->getJson('/api/v1/gate/flights')->assertOk()->json('data'))->pluck('id');
+        $this->assertTrue($ids->contains($this->flight->id));
+        $this->assertFalse($ids->contains($foreign->id));
+        $this->getJson("/api/v1/gate/flights/{$this->flight->id}")->assertOk();
+        $this->getJson("/api/v1/gate/flights/{$foreign->id}")->assertForbidden();
     }
 
     public function test_go_show_passenger_is_added_at_the_counter(): void

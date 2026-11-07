@@ -161,13 +161,14 @@ class FlightOperationController extends Controller
             'reason' => ['required_if:action,cancel', 'nullable', 'string', 'max:1000'],
         ]);
 
-        // closing is OCC's, cancelling / reopening the airline administrator's; opening check-in stays with flight_manager.update
+        // closing is OCC's, cancelling and reopening each have their own permission; opening check-in stays with flight_manager.update
         $permission = match ($data['action']) {
             'close_checkin', 'close_gate', 'depart' => 'flight_manager.close',
-            'cancel', 'reopen' => 'flight_manager.cancel',
-            default => null,
+            'cancel' => 'flight_manager.cancel',
+            'reopen' => 'flight_manager.reopen',
+            default => 'flight_manager.update',
         };
-        if ($permission && ! $request->user()->hasPermission($permission)) {
+        if (! $request->user()->hasPermission($permission)) {
             throw new AuthorizationException('You do not have permission for this.');
         }
 
