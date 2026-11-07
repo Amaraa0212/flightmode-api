@@ -3,6 +3,7 @@
 namespace App\Services\Flight;
 
 use App\Enums\ActivityChannel;
+use App\Enums\FlightServiceType;
 use App\Enums\FlightStatus;
 use App\Enums\SegmentStatus;
 use App\Exceptions\BusinessRuleException;
@@ -35,6 +36,7 @@ class FlightOperationsService
     /** @param array<string, mixed> $data */
     public function update(Flight $flight, array $data): Flight
     {
+        $this->assertCanBecomeCharter($flight, $data['service_type'] ?? null);
         $original = $flight->getOriginal();
         $flight->fill($data);
         // a series flight changed by hand keeps its own schedule when the series is saved again
@@ -51,6 +53,22 @@ class FlightOperationsService
         }
 
         return $flight;
+    }
+
+    /** A scheduled flight with issued tickets stays scheduled: those passengers bought published fares. */
+    public function assertCanBecomeCharter(Flight $flight, FlightServiceType|string|null $type): void
+    {
+        $type = is_string($type) ? FlightServiceType::tryFrom($type) : $type;
+        if ($type !== FlightServiceType::Charter || $flight->isCharter()) {
+            return;
+        }
+
+        $ticketed = $flight->segments()->whereNotNull('ticket_number')
+            ->where('status', '!=', SegmentStatus::Cancelled->value)->exists();
+        if ($ticketed) {
+            throw BusinessRuleException::make('flight_has_tickets',
+                "{$flight->flight_number} has issued tickets, so a scheduled flight cannot be changed to charter.");
+        }
     }
 
     public function delete(Flight $flight): void

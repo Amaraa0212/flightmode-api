@@ -14,9 +14,9 @@ use Illuminate\Support\Facades\Route;
 Route::get('dashboard', Admin\DashboardController::class)->middleware('perm:dashboard.view');
 
 // Organisations & access
-Route::apiResource('airlines', Admin\AirlineController::class)->only(['index', 'show'])->middleware('crud:airlines,carriage,lookup');
+Route::apiResource('airlines', Admin\AirlineController::class)->only(['index', 'show'])->middleware('crud:airlines,carriage,bag_tag,lookup');
 Route::apiResource('airlines', Admin\AirlineController::class)->only(['store', 'destroy'])->middleware('crud:airlines');
-Route::put('airlines/{airline}', [Admin\AirlineController::class, 'update'])->middleware('crud:airlines,carriage');
+Route::put('airlines/{airline}', [Admin\AirlineController::class, 'update'])->middleware('crud:airlines,carriage,bag_tag');
 Route::get('airlines/{airline}/agencies', [Admin\AirlineController::class, 'agencies'])->middleware('perm:agency_access.view,airlines.view');
 Route::put('airlines/{airline}/agencies/{agency}', [Admin\AirlineController::class, 'setAgencyContract'])->middleware('perm:agency_access.update');
 Route::delete('airlines/{airline}/agencies/{agency}', [Admin\AirlineController::class, 'removeAgencyContract'])->middleware('perm:agency_access.delete');

@@ -52,7 +52,10 @@ class ManifestService
     /** Checked-in passengers with seat and baggage. */
     public function passengers(Flight $flight): array
     {
-        $rows = $this->checkedIn($flight)->map(fn (PassengerSegment $s) => [
+        $segments = $this->checkedIn($flight);
+        // an infant has no seat of its own: it sits on its adult's
+        $seatOf = $segments->pluck('seat_number', 'passenger_id');
+        $rows = $segments->map(fn (PassengerSegment $s) => [
             'segment_id' => $s->id,
             'name' => $s->passenger->last_name.'/'.$s->passenger->first_name,
             'first_name' => $s->passenger->first_name,
@@ -66,7 +69,7 @@ class ManifestService
             'remark' => $s->passenger->remark,
             'pnr' => $s->passenger->booking->pnr,
             'cabin_class' => $s->cabin_class->value,
-            'seat_number' => $s->seat_number,
+            'seat_number' => $s->seat_number ?? $seatOf->get($s->passenger->infant_of_passenger_id),
             'boarding_sequence' => $s->boarding_sequence,
             'ssr' => $s->ssrCodes->pluck('code')->implode(' '),
             'online' => $s->checkin_channel?->value === 'online',

@@ -74,6 +74,8 @@ class FlightDocumentsTest extends TestCase
         $adult = collect($data['passengers']['rows'])->firstWhere('type', 'ADT');
         $this->assertSame($adult['gender'], $adult['gdr']);
         $this->assertSame('INF', collect($data['passengers']['rows'])->firstWhere('type', 'INF')['gdr']);
+        // the infant has no seat of its own: it shows the adult's
+        $this->assertSame('4A', collect($data['passengers']['rows'])->firstWhere('type', 'INF')['seat_number']);
         $this->assertArrayHasKey('date_of_birth', $adult);
         $this->assertSame($data['header']['std_time'], $data['header']['departure_time']);
         $this->assertSame(

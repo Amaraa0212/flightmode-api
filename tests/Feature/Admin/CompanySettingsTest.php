@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Admin;
 
+use App\Models\Agency;
 use App\Models\Airline;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\BuildsFlightData;
@@ -58,5 +59,34 @@ class CompanySettingsTest extends TestCase
         $this->actingAsRole('system-admin');
         $this->putJson("/api/v1/admin/airlines/{$other->id}/agencies/{$id}", ['is_active' => true])->assertForbidden();
         $this->putJson("/api/v1/admin/airlines/{$this->airline->id}/agencies/{$id}", ['is_active' => false])->assertOk();
+    }
+
+    public function test_agents_permission_lists_agencies_to_contract_but_not_other_airlines_channels_or_contracts(): void
+    {
+        $other = Airline::create(['name' => 'Other Air', 'iata_code' => 'OT', 'numeric_code' => '456']);
+        $free = Agency::create(['name' => 'Created by super admin', 'code' => 'FREE', 'channel' => 'agency']);
+        $free->airlines()->attach($other->id, ['is_active' => true]);
+        $otherChannel = Agency::create(['name' => 'Other office', 'code' => 'OTHR', 'channel' => 'ticket_office', 'owner_airline_id' => $other->id]);
+
+        $this->actingAsRole('airline-admin');
+        $this->getJson('/api/v1/admin/agencies')->assertOk()->assertJsonMissing(['id' => $free->id]);
+
+        $rows = collect($this->getJson('/api/v1/admin/agencies?for_contract=1&per_page=100')->assertOk()->json('data'))->keyBy('id');
+        $this->assertTrue($rows->has($free->id));
+        $this->assertFalse($rows->has($otherChannel->id));
+        $this->assertSame([], $rows[$free->id]['airlines']);
+
+        $this->putJson("/api/v1/admin/airlines/{$this->airline->id}/agencies/{$free->id}", ['is_active' => true])->assertOk();
+        $this->getJson("/api/v1/admin/agencies/{$free->id}")->assertOk()
+            ->assertJsonCount(1, 'data.airlines')->assertJsonPath('data.airlines.0.id', $this->airline->id);
+    }
+
+    public function test_bag_tag_direction_is_saved_per_airline(): void
+    {
+        $this->actingAsRole('airline-admin');
+        $url = "/api/v1/admin/airlines/{$this->airline->id}";
+        $this->getJson($url)->assertOk()->assertJsonPath('data.bag_tag_rotation', 0);
+        $this->putJson($url, ['bag_tag_rotation' => 90])->assertStatus(422)->assertJsonValidationErrors('bag_tag_rotation');
+        $this->putJson($url, ['bag_tag_rotation' => 180])->assertOk()->assertJsonPath('data.bag_tag_rotation', 180);
     }
 }

@@ -154,6 +154,7 @@ class BaggageController extends Controller
                 'iata_code' => $flight->airline->iata_code,
                 'logo_url' => $flight->airline->logoUrl(),
                 'layout' => $flight->airline->bag_tag_layout,
+                'bag_tag_rotation' => (int) $flight->airline->bag_tag_rotation,
             ],
             'flight_number' => $flight->flight_number,
             'date' => $flight->departureAt()->copy()->timezone($flight->origin->timezone)->format('dM'),

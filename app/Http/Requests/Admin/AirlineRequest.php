@@ -25,6 +25,7 @@ class AirlineRequest extends FormRequest
             'brand_color' => ['nullable', 'regex:/^#[0-9a-fA-F]{6}$/'],
             'conditions_of_carriage' => ['nullable', 'string'],
             'bag_tag_layout' => ['nullable', 'integer', 'min:1', 'max:9'],
+            'bag_tag_rotation' => ['sometimes', 'integer', 'in:0,180'],
             'currency' => ['nullable', 'string', 'size:3'],
             'is_active' => ['boolean'],
         ];

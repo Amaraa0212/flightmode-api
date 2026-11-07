@@ -71,7 +71,11 @@ class FlightDocumentController extends Controller
     {
         $this->access->ensureFlight($request->user(), $flight);
 
-        return (new ChinaApisExport($flight))->download($this->name($flight, 'apis', SpreadsheetExport::XLSX));
+        // legacy file name: OMFL-UBNICN-25DEC26.xlsx
+        $flight->loadMissing(['airline', 'origin', 'destination']);
+        $date = strtoupper($flight->scheduled_departure_at->copy()->timezone($flight->origin->timezone)->format('dMy'));
+
+        return (new ChinaApisExport($flight))->download("{$flight->airline->iata_code}FL-{$flight->origin->iata_code}{$flight->destination->iata_code}-{$date}.xlsx");
     }
 
     public function noShow(Request $request, Flight $flight): Response

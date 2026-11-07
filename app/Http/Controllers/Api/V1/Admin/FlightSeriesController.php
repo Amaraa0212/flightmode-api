@@ -61,7 +61,7 @@ class FlightSeriesController extends Controller
 
         $message = "Series deleted, {$result['removed']} flight(s) removed.";
         if ($result['kept']) {
-            $message .= ' Kept (have passengers): '.implode(', ', $result['kept']).'.';
+            $message .= ' Kept (have passengers or quota): '.implode(', ', $result['kept']).'.';
         }
 
         return $this->deleted($message);
@@ -72,6 +72,6 @@ class FlightSeriesController extends Controller
     {
         $text = "Flights: {$result['created']} created, {$result['updated']} updated, {$result['removed']} removed.";
 
-        return $result['kept'] ? $text.' Not removed (have passengers or started): '.implode(', ', $result['kept']).'.' : $text;
+        return $result['kept'] ? $text.' Not removed (have passengers, quota or started): '.implode(', ', $result['kept']).'.' : $text;
     }
 }

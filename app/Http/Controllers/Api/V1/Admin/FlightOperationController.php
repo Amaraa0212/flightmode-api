@@ -249,7 +249,7 @@ class FlightOperationController extends Controller
     {
         return User::query()->where('is_active', true)
             ->whereHas('role', fn ($q) => $q->whereIn('scope', [RoleScope::Airline->value, RoleScope::Airport->value]))
-            ->where(fn ($q) => $q->where('airline_id', $flight->airline_id)->orWhere('airport_id', $flight->origin_airport_id))
+            ->where('airline_id', $flight->airline_id)
             ->orderBy('name')
             ->get();
     }

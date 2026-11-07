@@ -21,9 +21,13 @@ use Illuminate\Support\Facades\DB;
  */
 class FlightSeriesService
 {
+    /** Counts that keep a flight when its series is deleted or narrowed. */
+    private const IN_USE = ['segments', 'outboundAllocations', 'returnAllocations'];
+
     public function __construct(
         private readonly ActivityLogger $logger,
         private readonly InventoryService $inventory,
+        private readonly FlightOperationsService $operations,
     ) {}
 
     /**
@@ -33,6 +37,11 @@ class FlightSeriesService
     public function save(array $data, ?FlightSeries $series = null): array
     {
         return DB::transaction(function () use ($data, $series) {
+            if ($series) {
+                foreach ($series->flights as $flight) {
+                    $this->operations->assertCanBecomeCharter($flight, $data['service_type'] ?? null);
+                }
+            }
             $series ??= new FlightSeries(['created_by' => auth()->id()]);
             $series->fill($data)->save();
             $series->load(['origin', 'destination']);
@@ -45,14 +54,14 @@ class FlightSeriesService
         });
     }
 
-    /** Deletes the series and every future flight of it that has no passengers. */
+    /** Deletes the series and every flight of it that has neither passengers nor agency quota. */
     public function delete(FlightSeries $series): array
     {
         return DB::transaction(function () use ($series) {
             $kept = [];
             $removed = 0;
-            foreach ($series->flights()->withCount('segments')->get() as $flight) {
-                if ($flight->segments_count > 0) {
+            foreach ($series->flights()->withCount(self::IN_USE)->get() as $flight) {
+                if ($this->inUse($flight)) {
                     $kept[] = $flight->scheduled_departure_at->toDateString();
                     $flight->update(['flight_series_id' => null]);
                 } else {
@@ -80,7 +89,7 @@ class FlightSeriesService
             }
         }
 
-        $existing = $series->flights()->withCount('segments')->get()
+        $existing = $series->flights()->withCount(self::IN_USE)->get()
             ->keyBy(fn (Flight $f) => $f->scheduled_departure_at->copy()->timezone($series->origin->timezone)->toDateString());
 
         $created = $updated = $removed = 0;
@@ -122,7 +131,7 @@ class FlightSeriesService
             if (isset($wanted[$date])) {
                 continue;
             }
-            if ($flight->segments_count > 0 || $flight->status !== FlightStatus::Scheduled || $flight->is_series_override) {
+            if ($this->inUse($flight) || $flight->status !== FlightStatus::Scheduled || $flight->is_series_override) {
                 $kept[] = $date;
 
                 continue;
@@ -132,6 +141,12 @@ class FlightSeriesService
         }
 
         return compact('created', 'updated', 'removed', 'kept');
+    }
+
+    /** Passengers or agency quota: the flight must stay. */
+    private function inUse(Flight $flight): bool
+    {
+        return $flight->segments_count > 0 || $flight->outbound_allocations_count > 0 || $flight->return_allocations_count > 0;
     }
 
     /** A template that does not fit the flight (e.g. another aircraft) leaves it without inventory. */

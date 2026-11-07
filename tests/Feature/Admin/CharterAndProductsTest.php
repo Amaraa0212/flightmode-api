@@ -3,7 +3,9 @@
 namespace Tests\Feature\Admin;
 
 use App\Enums\BookingSource;
+use App\Models\Airline;
 use App\Models\BaggageRule;
+use App\Models\Flight;
 use App\Models\PassengerSegment;
 use App\Models\SeatPrice;
 use App\Services\Booking\BookingService;
@@ -120,5 +122,53 @@ class CharterAndProductsTest extends TestCase
             ['agency' => ['id' => $this->agency->id, 'name' => 'Test Travel'], 'seats' => 10, 'sold' => 2],
             ['agency' => null, 'seats' => 0, 'sold' => 1],
         ], $row['agency_sales']);
+    }
+
+    public function test_gate_users_of_a_flight_are_only_those_of_its_airline(): void
+    {
+        $flight = $this->makeFlight();
+        $own = $this->makeUser('station-agent');
+        $other = Airline::create(['name' => 'Other Air', 'iata_code' => 'OT', 'numeric_code' => '456']);
+        $foreign = $this->makeUser('station-agent', ['airline_id' => $other->id]);
+        $this->actingAsRole('airline-admin');
+
+        $ids = collect($this->getJson("/api/v1/admin/flights/{$flight->id}/gate-agents/candidates")->assertOk()->json('data'))->pluck('id');
+        $this->assertTrue($ids->contains($own->id));
+        $this->assertFalse($ids->contains($foreign->id));
+
+        $this->putJson("/api/v1/admin/flights/{$flight->id}/gate-agents", ['user_ids' => [$foreign->id]])
+            ->assertStatus(422)->assertJsonValidationErrors('user_ids');
+    }
+
+    public function test_a_scheduled_flight_with_tickets_cannot_become_charter(): void
+    {
+        $flight = $this->makeFlight();
+        $allocation = $this->makeAllocation($flight);
+        $this->actingAsRole('agency-agent');
+        $this->postJson('/api/v1/agency/bookings', ['allocation_id' => $allocation->id, 'passengers' => [$this->passengerPayload()]])->assertCreated();
+
+        $this->actingAsRole('airline-admin');
+        $this->putJson("/api/v1/admin/flights/{$flight->id}", ['service_type' => 'charter'])
+            ->assertStatus(422)->assertJsonPath('code', 'flight_has_tickets');
+        $this->assertSame('scheduled', $flight->fresh()->service_type->value);
+    }
+
+    public function test_deleting_a_series_keeps_flights_with_agency_quota(): void
+    {
+        $this->actingAsRole('airline-admin');
+        $id = $this->postJson('/api/v1/admin/flight-series', [
+            'flight_number' => 'MN700', 'aircraft_id' => $this->aircraft->id,
+            'origin_airport_id' => $this->ubn->id, 'destination_airport_id' => $this->pqc->id,
+            'period_start' => today()->addDays(2)->toDateString(), 'period_end' => today()->addDays(4)->toDateString(),
+            'days_of_week' => [1, 2, 3, 4, 5, 6, 7], 'departure_time' => '09:00', 'arrival_time' => '14:00',
+        ])->assertCreated()->json('data.id');
+        $flights = Flight::query()->where('flight_series_id', $id)->orderBy('scheduled_departure_at')->get();
+        $this->assertCount(3, $flights);
+        $this->makeAllocation($flights[0]);
+
+        $this->deleteJson("/api/v1/admin/flight-series/{$id}")->assertOk();
+
+        $this->assertNotSoftDeleted($flights[0]);
+        $this->assertSoftDeleted($flights[1]);
     }
 }
