@@ -53,7 +53,7 @@ class TwoFactorTest extends TestCase
 
         $setup = $this->actingAs($user)->postJson('/api/v1/auth/two-factor/setup', ['password' => 'secret123'])->assertOk();
         $secret = $setup->json('data.secret');
-        $this->assertStringStartsWith('otpauth://totp/', $setup->json('data.otpauth_url'));
+        $this->assertStringStartsWith('otpauth://totp/Skythium', $setup->json('data.otpauth_url'));
         $this->assertStringContainsString('secret='.$secret, $setup->json('data.otpauth_url'));
 
         // not active until a code is confirmed
