@@ -24,7 +24,7 @@ class TwoFactor
     /** otpauth:// URL for the authenticator app QR code */
     public function otpauthUrl(User $user, string $secret): string
     {
-        return $this->google2fa->getQRCodeUrl((string) config('app.name'), $user->email, $secret);
+        return $this->google2fa->getQRCodeUrl((string) config('flightmode.two_factor_issuer'), $user->email, $secret);
     }
 
     /** Seconds until the user may try a code again; 0 when not locked */

@@ -1,6 +1,8 @@
 <?php
 
 return [
+    // the name the authenticator app (Google Authenticator) shows above the code
+    'two_factor_issuer' => env('TWO_FACTOR_ISSUER', 'Skythium'),
 
     'currency' => env('FLIGHTMODE_CURRENCY', 'MNT'),
 
