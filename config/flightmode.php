@@ -41,6 +41,8 @@ return [
         'eticket_cabin_baggage_kg' => 5,
         // Free checked baggage (kg) used on the e-ticket / PNL when no FBAG rule is linked to the flight.
         'default_free_baggage_kg' => 20,
+        // "Check-in opens N hours before each departure" on the e-ticket.
+        'eticket_checkin_opens_hours' => 3,
         // PNL SITA header routing per departure airport, e.g. "PQC=PQCKLXH,CXR=CXRLLVN".
         'pnl_routing' => collect(explode(',', (string) env('PNL_ROUTING', 'PQC=PQCKLXH,CXR=CXRLLVN')))
             ->filter()

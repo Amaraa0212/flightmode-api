@@ -52,7 +52,7 @@ class PassengerController extends Controller
     public function eticket(Request $request, Passenger $passenger): Response
     {
         $this->access->ensureBooking($request->user(), $passenger->booking);
-        $file = $this->etickets->pdf($passenger);
+        $file = $this->etickets->pdf($passenger, ...array_values(ETicketService::options($request)));
 
         return response($file['content'], 200, [
             'Content-Type' => 'application/pdf',
@@ -64,7 +64,8 @@ class PassengerController extends Controller
     {
         $this->access->ensureBooking($request->user(), $passenger->booking);
         $data = $request->validate(['email' => ['nullable', 'email']]);
-        $to = $this->etickets->email($passenger, $data['email'] ?? null);
+        ['lang' => $lang, 'with_fare' => $withFare] = ETicketService::options($request);
+        $to = $this->etickets->email($passenger, $data['email'] ?? null, $lang, $withFare);
 
         return $this->success("E-ticket sent to {$to}.");
     }
