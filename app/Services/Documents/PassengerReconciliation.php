@@ -24,7 +24,8 @@ class PassengerReconciliation
         // until the gate closes, a passenger who has not boarded may still come
         $closed = in_array($flight->status, [FlightStatus::GateClosed, FlightStatus::Departed], true);
 
-        $segments = PassengerSegment::query()->with(['passenger.booking.agency'])
+        // cancelled passengers are deleted but still counted as cancelled
+        $segments = PassengerSegment::query()->with(['passenger' => fn ($q) => $q->withTrashed(), 'passenger.booking' => fn ($q) => $q->withTrashed(), 'passenger.booking.agency'])
             ->where('flight_id', $flight->id)
             ->get();
 

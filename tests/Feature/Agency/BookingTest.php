@@ -165,6 +165,13 @@ class BookingTest extends TestCase
 
         $this->putJson("/api/v1/agency/passengers/{$id}", ['infant' => null])->assertOk();
         $this->getJson("/api/v1/agency/passengers/{$id}")->assertJsonPath('data.infant', null);
+
+        // the removed infant's cancelled coupon does not break the back office passenger list
+        $this->actingAsRole('airline-admin');
+        $this->getJson("/api/v1/admin/flights/{$allocation->outbound_flight_id}/passengers")->assertOk()->assertJsonCount(2, 'data');
+        $this->getJson("/api/v1/admin/flights/{$allocation->outbound_flight_id}/documents/reconciliation")->assertOk()
+            ->assertJsonPath('data.summary.cancelled.INF', 1);
+        $this->actingAsRole('agency-agent');
         $this->assertSame(1, $this->getJson("/api/v1/agency/allocations/{$allocation->id}")->json('data.usage.used'));
     }
 
