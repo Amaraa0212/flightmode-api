@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\AgencyRequest;
 use App\Http\Resources\AgencyResource;
 use App\Models\Agency;
+use App\Models\Airline;
 use App\Models\User;
 use Closure;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -47,11 +48,14 @@ class AgencyController extends Controller
         $user = $request->user();
 
         $agency = DB::transaction(function () use ($request, $user) {
-            // a system administrator may create it for one airline (owner_airline_id), or leave it shared
+            // a system administrator may create it for one airline (owner_airline_id), or shared — then optionally
+            // with a contract with every airline there is now (a later airline is linked by hand)
             $owner = $user->isSystemAdmin() ? $request->validated('owner_airline_id') : $user->airline_id;
-            $agency = Agency::create(collect($request->validated())->except('owner_airline_id')->all() + ['owner_airline_id' => $owner]);
+            $agency = Agency::create(collect($request->validated())->except(['owner_airline_id', 'all_airlines'])->all() + ['owner_airline_id' => $owner]);
             if ($owner) {
                 $agency->airlines()->attach($owner, ['is_active' => true]);
+            } elseif ($user->isSystemAdmin() && $request->boolean('all_airlines')) {
+                $agency->airlines()->attach(Airline::query()->pluck('id')->mapWithKeys(fn ($id) => [$id => ['is_active' => true]])->all());
             }
 
             return $agency;
@@ -69,7 +73,7 @@ class AgencyController extends Controller
 
     public function update(AgencyRequest $request, Agency $agency): JsonResponse
     {
-        $data = collect($request->validated())->except('owner_airline_id');
+        $data = collect($request->validated())->except(['owner_airline_id', 'all_airlines']);
         // a contracted airline may still switch the Chinggis push of a shared agency; the rest is the owner's
         if ($data->keys()->diff(['chinggis_sync'])->isEmpty()) {
             $this->ensureVisible($request->user(), $agency);

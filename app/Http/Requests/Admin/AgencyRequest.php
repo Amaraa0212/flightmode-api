@@ -25,6 +25,8 @@ class AgencyRequest extends FormRequest
             'is_active' => ['boolean'],
             // system administrators: the airline the new agency belongs to (empty = shared by every airline)
             'owner_airline_id' => ['nullable', 'integer', 'exists:airlines,id'],
+            // system administrators, a shared agency: a contract with every airline at once
+            'all_airlines' => ['boolean'],
         ];
     }
 }
