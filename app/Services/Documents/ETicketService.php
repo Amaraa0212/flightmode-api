@@ -15,6 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
+use ZipArchive;
 
 /**
  * E-ticket (itinerary receipt) of an adult passenger; an infant travelling with them is included.
@@ -25,22 +26,27 @@ class ETicketService
     public const LANGUAGES = ['en', 'mn'];
 
     /**
-     * ?lang=en|mn&fare=1|0 of a download or e-mail request.
+     * ?lang=en|mn&fare=1|0&issued=1|0 of a download or e-mail request (prices and the issue date are shown unless 0).
      *
-     * @return array{lang: string, with_fare: bool}
+     * @return array{lang: string, with_fare: bool, with_issued: bool}
      */
     public static function options(Request $request): array
     {
         $data = $request->validate([
             'lang' => ['nullable', Rule::in(self::LANGUAGES)],
             'fare' => ['nullable', 'boolean'],
+            'issued' => ['nullable', 'boolean'],
         ]);
 
-        return ['lang' => $data['lang'] ?? 'en', 'with_fare' => $request->has('fare') ? $request->boolean('fare') : true];
+        return [
+            'lang' => $data['lang'] ?? 'en',
+            'with_fare' => $request->has('fare') ? $request->boolean('fare') : true,
+            'with_issued' => $request->has('issued') ? $request->boolean('issued') : true,
+        ];
     }
 
     /** @return array<string, mixed> */
-    public function data(Passenger $passenger, string $lang = 'en', bool $withFare = true): array
+    public function data(Passenger $passenger, string $lang = 'en', bool $withFare = true, bool $withIssued = true): array
     {
         if ($passenger->isInfant()) {
             throw BusinessRuleException::make('eticket_infant', 'The e-ticket is issued for the adult; the infant is included in it.');
@@ -129,6 +135,7 @@ class ETicketService
         return [
             'lang' => $lang,
             'with_fare' => $withFare,
+            'with_issued' => $withIssued,
             't' => $t,
             'airline' => [
                 'name' => $airline->name,
@@ -180,9 +187,9 @@ class ETicketService
     }
 
     /** @return array{filename: string, content: string} */
-    public function pdf(Passenger $passenger, string $lang = 'en', bool $withFare = true): array
+    public function pdf(Passenger $passenger, string $lang = 'en', bool $withFare = true, bool $withIssued = true): array
     {
-        $data = $this->data($passenger, $lang, $withFare);
+        $data = $this->data($passenger, $lang, $withFare, $withIssued);
 
         $pdf = Pdf::loadView('documents.eticket', $data)
             ->setPaper('a4')
@@ -195,17 +202,46 @@ class ETicketService
         ];
     }
 
-    public function email(Passenger $passenger, ?string $to = null, string $lang = 'en', bool $withFare = true): string
+    public function email(Passenger $passenger, ?string $to = null, string $lang = 'en', bool $withFare = true, bool $withIssued = true): string
     {
         $to ??= $passenger->email ?? $passenger->booking->contact_email;
         if (! $to) {
             throw BusinessRuleException::make('no_email', 'The passenger has no e-mail address.');
         }
 
-        $file = $this->pdf($passenger, $lang, $withFare);
+        $file = $this->pdf($passenger, $lang, $withFare, $withIssued);
         Mail::to($to)->send(new ETicketMail($passenger->booking->pnr, $file['filename'], $file['content']));
         $passenger->booking->forceFill(['ticket_emailed_at' => now()])->save();
 
         return $to;
+    }
+
+    /**
+     * The e-tickets of several passengers in one ZIP (an infant's ticket is printed with its adult, so it is skipped).
+     *
+     * @param  iterable<Passenger>  $passengers
+     * @return array{filename: string, content: string}
+     */
+    public function zip(iterable $passengers, string $lang = 'en', bool $withFare = true, bool $withIssued = true): array
+    {
+        $path = tempnam(sys_get_temp_dir(), 'etk');
+        $zip = new ZipArchive;
+        $zip->open($path, ZipArchive::OVERWRITE);
+        $names = [];
+        foreach ($passengers as $passenger) {
+            if ($passenger->isInfant()) {
+                continue;
+            }
+            $file = $this->pdf($passenger, $lang, $withFare, $withIssued);
+            // PNR-LAST-FIRST.pdf (a name twice in the list gets -2, -3)
+            $name = trim(preg_replace('/[^A-Za-z0-9]+/', '-', $passenger->booking->pnr.' '.$passenger->last_name.' '.$passenger->first_name), '-');
+            $names[$name] = ($names[$name] ?? 0) + 1;
+            $zip->addFromString($name.($names[$name] > 1 ? '-'.$names[$name] : '').'.pdf', $file['content']);
+        }
+        $zip->close();
+        $content = (string) file_get_contents($path);
+        @unlink($path);
+
+        return ['filename' => 'etickets-'.now()->format('Ymd-His').'.zip', 'content' => $content];
     }
 }

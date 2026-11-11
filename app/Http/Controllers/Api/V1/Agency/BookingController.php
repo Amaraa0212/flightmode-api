@@ -17,6 +17,7 @@ use App\Services\Access\AccessScope;
 use App\Services\Booking\BookingService;
 use App\Services\Booking\PassengerImportService;
 use App\Services\Documents\ETicketService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -145,9 +146,31 @@ class BookingController extends Controller
     {
         $this->ensureOwn($request, $passenger);
         $data = $request->validate(['email' => ['nullable', 'email']]);
-        ['lang' => $lang, 'with_fare' => $withFare] = ETicketService::options($request);
+        ['lang' => $lang, 'with_fare' => $withFare, 'with_issued' => $withIssued] = ETicketService::options($request);
 
-        return $this->success('E-ticket sent to '.$this->etickets->email($passenger, $data['email'] ?? null, $lang, $withFare).'.');
+        return $this->success('E-ticket sent to '.$this->etickets->email($passenger, $data['email'] ?? null, $lang, $withFare, $withIssued).'.');
+    }
+
+    /** The e-tickets of the checked passengers in one ZIP: { passenger_ids: [], lang?, fare?, issued? } */
+    public function eticketsZip(Request $request): Response
+    {
+        $ids = $request->validate([
+            'passenger_ids' => ['required', 'array', 'min:1', 'max:200'],
+            'passenger_ids.*' => ['integer', 'distinct'],
+        ])['passenger_ids'];
+        $passengers = Passenger::query()->with('booking')->whereIn('id', $ids)->get();
+        if ($passengers->count() !== count($ids)) {
+            throw (new ModelNotFoundException)->setModel(Passenger::class, array_diff($ids, $passengers->modelKeys()));
+        }
+        $passengers->each(fn (Passenger $p) => $this->ensureOwn($request, $p));
+
+        $file = $this->etickets->zip($passengers->sortBy(fn (Passenger $p) => [$p->booking->pnr, $p->id]),
+            ...array_values(ETicketService::options($request)));
+
+        return response($file['content'], 200, [
+            'Content-Type' => 'application/zip',
+            'Content-Disposition' => 'attachment; filename="'.$file['filename'].'"',
+        ]);
     }
 
     /** Excel upload of a passenger list into an allocation. */

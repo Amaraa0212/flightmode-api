@@ -31,7 +31,9 @@ class AnnouncementController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $airlineId = $this->access->airlineIdForWrite($request->user(), $request->integer('airline_id') ?: null);
+        // a system administrator may address every airline at once (airline_id stays empty)
+        $everyAirline = $request->user()->isSystemAdmin() && $request->boolean('all_airlines');
+        $airlineId = $everyAirline ? null : $this->access->airlineIdForWrite($request->user(), $request->integer('airline_id') ?: null);
         $announcement = Announcement::create($this->validated($request, $airlineId) + [
             'airline_id' => $airlineId,
             'created_by' => $request->user()->id,
@@ -57,12 +59,13 @@ class AnnouncementController extends Controller
     }
 
     /** @return array<string, mixed> */
-    private function validated(Request $request, int $airlineId, ?Announcement $announcement = null): array
+    private function validated(Request $request, ?int $airlineId, ?Announcement $announcement = null): array
     {
         $required = $announcement ? 'sometimes' : 'required';
 
         return $request->validate([
-            'agency_id' => ['nullable', 'integer', function ($attribute, $value, $fail) use ($airlineId) {
+            // to every airline: everyone, not one agency
+            'agency_id' => $airlineId === null ? ['prohibited'] : ['nullable', 'integer', function ($attribute, $value, $fail) use ($airlineId) {
                 $contracted = DB::table('agency_airline')->where('airline_id', $airlineId)->where('agency_id', $value)->exists();
                 if (! $contracted) {
                     $fail('The agency is not contracted with this airline.');

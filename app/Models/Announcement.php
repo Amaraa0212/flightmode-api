@@ -40,6 +40,7 @@ class Announcement extends Model
      * Announcements a user should see:
      *  - agency users: addressed to their agency, or to all agencies of an airline they are contracted with
      *  - airline / airport users: addressed to their airline (not agency specific)
+     *  - everyone: addressed to every airline (no airline, no agency — sent by a system administrator)
      */
     public function scopeVisibleTo(Builder $query, User $user): void
     {
@@ -47,25 +48,31 @@ class Announcement extends Model
             return;
         }
 
-        $query->where(function (Builder $q) use ($user) {
-            if ($user->agency_id) {
-                $airlineIds = $user->agency?->airlines()->pluck('airlines.id')->all() ?? [];
-                $q->where('agency_id', $user->agency_id)
-                    ->orWhere(fn (Builder $x) => $x->whereNull('agency_id')->whereIn('airline_id', $airlineIds));
-            }
+        // one of every airline (system administrator): everybody's
+        $query->where(fn (Builder $outer) => $outer->where(fn (Builder $q) => $this->addressedTo($q, $user))
+            ->orWhere(fn (Builder $all) => $all->whereNull('airline_id')->whereNull('agency_id')));
+    }
 
-            if ($user->airline_id) {
-                $q->orWhere(fn (Builder $x) => $x->where('airline_id', $user->airline_id)->whereNull('agency_id'));
-            }
+    /** Addressed to the user's agency or airline (the rules in the comment above) */
+    private function addressedTo(Builder $q, User $user): void
+    {
+        if ($user->agency_id) {
+            $airlineIds = $user->agency?->airlines()->pluck('airlines.id')->all() ?? [];
+            $q->where('agency_id', $user->agency_id)
+                ->orWhere(fn (Builder $x) => $x->whereNull('agency_id')->whereIn('airline_id', $airlineIds));
+        }
 
-            // Station staff (DCS / gate) without an airline: airline-wide announcements (not agency-specific)
-            if (! $user->agency_id && ! $user->airline_id && $user->airport_id) {
-                $q->whereNull('agency_id');
-            }
+        if ($user->airline_id) {
+            $q->orWhere(fn (Builder $x) => $x->where('airline_id', $user->airline_id)->whereNull('agency_id'));
+        }
 
-            if (! $user->agency_id && ! $user->airline_id && ! $user->airport_id) {
-                $q->whereRaw('1 = 0');
-            }
-        });
+        // Station staff (DCS / gate) without an airline: airline-wide announcements (not agency-specific)
+        if (! $user->agency_id && ! $user->airline_id && $user->airport_id) {
+            $q->whereNull('agency_id');
+        }
+
+        if (! $user->agency_id && ! $user->airline_id && ! $user->airport_id) {
+            $q->whereRaw('1 = 0');
+        }
     }
 }
