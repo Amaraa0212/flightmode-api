@@ -24,6 +24,8 @@ class ActivityLogResource extends JsonResource
                 'id' => $this->flight->id,
                 'flight_number' => $this->flight->flight_number,
                 'scheduled_departure_at' => $this->flight->scheduled_departure_at?->toIso8601String(),
+                // the departure airport's own clock
+                'origin' => $this->flight->relationLoaded('origin') ? $this->flight->origin?->iata_code : null,
             ] : null),
             'passenger_id' => $this->passenger_id,
             'passenger' => $this->whenLoaded('passenger', fn () => $this->passenger ? [

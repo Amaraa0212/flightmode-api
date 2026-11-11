@@ -23,7 +23,7 @@ class ActivityLogController extends Controller
     {
         $user = $request->user();
 
-        $logs = ActivityLog::query()->with(['user', 'flight', 'passenger.booking'])
+        $logs = ActivityLog::query()->with(['user', 'flight.origin', 'passenger.booking'])
             ->when(! $user->isSystemAdmin(), fn ($q) => $q->where(fn ($x) => $x
                 ->whereIn('flight_id', $this->access->flights(Flight::query(), $user)->select('flights.id'))
                 ->orWhereIn('user_id', fn ($u) => $u->select('id')->from('users')->where('airline_id', $user->airline_id ?? 0))))
