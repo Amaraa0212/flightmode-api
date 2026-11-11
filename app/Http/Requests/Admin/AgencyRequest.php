@@ -23,6 +23,8 @@ class AgencyRequest extends FormRequest
             'api_enabled' => ['boolean'],
             'chinggis_sync' => ['boolean'],
             'is_active' => ['boolean'],
+            // system administrators: the airline the new agency belongs to (empty = shared by every airline)
+            'owner_airline_id' => ['nullable', 'integer', 'exists:airlines,id'],
         ];
     }
 }

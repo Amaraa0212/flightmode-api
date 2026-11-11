@@ -24,9 +24,12 @@ class AgencyController extends Controller
     public function index(Request $request): AnonymousResourceCollection
     {
         $user = $request->user();
-        // Agents permission: agencies the airline may contract too, not only those already contracted
+        // Agents permission: the agencies the airline created, and those it already has a contract with —
+        // never an agency another airline created
         $query = $request->boolean('for_contract') && $user->airline_id && $user->hasPermission('agency_access.view')
-            ? Agency::query()->where(fn ($o) => $o->whereNull('owner_airline_id')->orWhere('owner_airline_id', $user->airline_id))
+            ? Agency::query()->where(fn ($o) => $o->where('owner_airline_id', $user->airline_id)
+                ->orWhere(fn ($shared) => $shared->whereNull('owner_airline_id')
+                    ->whereHas('airlines', fn ($a) => $a->whereKey($user->airline_id))))
             : $this->visible($user);
 
         return AgencyResource::collection(
@@ -44,9 +47,11 @@ class AgencyController extends Controller
         $user = $request->user();
 
         $agency = DB::transaction(function () use ($request, $user) {
-            $agency = Agency::create($request->validated() + ['owner_airline_id' => $user->airline_id]);
-            if ($user->airline_id) {
-                $agency->airlines()->attach($user->airline_id, ['is_active' => true]);
+            // a system administrator may create it for one airline (owner_airline_id), or leave it shared
+            $owner = $user->isSystemAdmin() ? $request->validated('owner_airline_id') : $user->airline_id;
+            $agency = Agency::create(collect($request->validated())->except('owner_airline_id')->all() + ['owner_airline_id' => $owner]);
+            if ($owner) {
+                $agency->airlines()->attach($owner, ['is_active' => true]);
             }
 
             return $agency;
@@ -64,17 +69,21 @@ class AgencyController extends Controller
 
     public function update(AgencyRequest $request, Agency $agency): JsonResponse
     {
-        $this->ensureVisible($request->user(), $agency);
-        $agency->update($request->validated());
+        $data = collect($request->validated())->except('owner_airline_id');
+        // a contracted airline may still switch the Chinggis push of a shared agency; the rest is the owner's
+        if ($data->keys()->diff(['chinggis_sync'])->isEmpty()) {
+            $this->ensureVisible($request->user(), $agency);
+        } else {
+            $this->ensureOwned($request->user(), $agency);
+        }
+        $agency->update($data->all());
 
         return $this->success('Agency updated.', new AgencyResource($agency->load(['airlines' => $this->ownContracts($request->user())])));
     }
 
     public function destroy(Request $request, Agency $agency): JsonResponse
     {
-        if (! $request->user()->isSystemAdmin()) {
-            throw new AuthorizationException('Only system administrators can delete agencies.');
-        }
+        $this->ensureOwned($request->user(), $agency);
         $agency->delete();
 
         return $this->deleted('Agency deleted.');
@@ -92,6 +101,14 @@ class AgencyController extends Controller
             ->when(! $user->isSystemAdmin() && $user->airline_id, fn ($q) => $q->whereHas('airlines', fn ($a) => $a->whereKey($user->airline_id))
                 ->where(fn ($o) => $o->whereNull('owner_airline_id')->orWhere('owner_airline_id', $user->airline_id)))
             ->when(! $user->isSystemAdmin() && ! $user->airline_id, fn ($q) => $q->whereKey($user->agency_id ?? 0));
+    }
+
+    /** Only the airline that created an agency changes or deletes it (a system administrator: any agency) */
+    private function ensureOwned(User $user, Agency $agency): void
+    {
+        if (! $user->isSystemAdmin() && (! $user->airline_id || $agency->owner_airline_id !== $user->airline_id)) {
+            throw new AuthorizationException('Only the airline that created this agency can change or delete it.');
+        }
     }
 
     private function ensureVisible(User $user, Agency $agency): void
