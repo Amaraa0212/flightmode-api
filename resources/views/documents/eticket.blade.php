@@ -110,8 +110,10 @@
         <tr>
             <td style="width: 22%;"><span class="label">{{ $t('reference') }}</span><span class="value reference">{{ $pnr }}</span></td>
             <td style="width: 30%;"><span class="label">{{ $t('tickets') }}</span><span class="value reference">{{ $ticket_numbers }}</span></td>
-            <td style="width: 23%;"><span class="label">{{ $t('status') }}</span><span class="value">{{ $status }}</span></td>
-            <td><span class="label">{{ $t('issued') }}</span><span class="value">{{ $issued_at }}</span></td>
+            <td @if ($with_issued) style="width: 23%;" @endif><span class="label">{{ $t('status') }}</span><span class="value">{{ $status }}</span></td>
+            @if ($with_issued)
+                <td><span class="label">{{ $t('issued') }}</span><span class="value">{{ $issued_at }}</span></td>
+            @endif
         </tr>
     </table>
 

@@ -44,6 +44,7 @@ Route::middleware('can:agency.portal')->group(function () {
     Route::delete('passengers/{passenger}', [BookingController::class, 'cancelPassenger']);
     Route::get('passengers/{passenger}/eticket', [BookingController::class, 'eticket']);
     Route::post('passengers/{passenger}/eticket/email', [BookingController::class, 'emailEticket']);
+    Route::post('etickets/zip', [BookingController::class, 'eticketsZip']);
 });
 
 Route::middleware('can:charters.create')->group(function () {

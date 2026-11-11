@@ -34,13 +34,13 @@ final class MenuCatalog
             ]],
             // travel agents: their seat quotas and the passengers sold on them (agency.portal)
             ['name' => 'Agency', 'menus' => [
-                ['name' => 'Нүүр', 'icon' => 'House', 'path' => '/agency', 'permission' => 'agency.portal', 'scopes' => ['agency']],
-                ['name' => 'Шинэ захиалга', 'icon' => 'PlaneTakeoff', 'path' => '/agency/booking', 'permission' => 'agency.portal', 'scopes' => ['agency']],
-                ['name' => 'Захиалга удирдах', 'icon' => 'FileSearch', 'path' => '/agency/bookings', 'permission' => 'agency.portal', 'scopes' => ['agency']],
-                ['name' => 'Суудал hold хийх', 'icon' => 'Search', 'path' => '/agency/search', 'permission' => 'agency.portal', 'scopes' => ['agency']],
-                ['name' => 'Hold-ууд', 'icon' => 'Timer', 'path' => '/agency/holds', 'permission' => 'agency.portal', 'scopes' => ['agency']],
-                ['name' => 'Миний квот', 'icon' => 'Ticket', 'path' => '/agency/quotas', 'permission' => 'agency.portal', 'scopes' => ['agency']],
-                ['name' => 'Миний данс', 'icon' => 'Wallet', 'path' => '/agency/account', 'permission' => 'agency.portal', 'scopes' => ['agency']],
+                ['key' => 'agency_home', 'name' => 'Нүүр', 'icon' => 'House', 'path' => '/agency', 'actions' => ['view'], 'scopes' => ['agency']],
+                ['key' => 'agency_booking', 'name' => 'Шинэ захиалга', 'icon' => 'PlaneTakeoff', 'path' => '/agency/booking', 'actions' => ['view'], 'scopes' => ['agency']],
+                ['key' => 'agency_bookings', 'name' => 'Захиалга удирдах', 'icon' => 'FileSearch', 'path' => '/agency/bookings', 'actions' => ['view'], 'scopes' => ['agency']],
+                ['key' => 'agency_search', 'name' => 'Суудал hold хийх', 'icon' => 'Search', 'path' => '/agency/search', 'actions' => ['view'], 'scopes' => ['agency']],
+                ['key' => 'agency_holds', 'name' => 'Hold-ууд', 'icon' => 'Timer', 'path' => '/agency/holds', 'actions' => ['view'], 'scopes' => ['agency']],
+                ['key' => 'agency_quotas', 'name' => 'Миний квот', 'icon' => 'Ticket', 'path' => '/agency/quotas', 'actions' => ['view'], 'scopes' => ['agency']],
+                ['key' => 'agency_account', 'name' => 'Миний данс', 'icon' => 'Wallet', 'path' => '/agency/account', 'actions' => ['view'], 'scopes' => ['agency']],
             ]],
             ['name' => 'Aircraft management', 'menus' => [
                 ['key' => 'aircraft', 'name' => 'Fleets', 'icon' => 'Plane', 'path' => '/fleet/aircraft', 'actions' => $crud],
@@ -188,7 +188,10 @@ final class MenuCatalog
             'announcements.manage' => $all('announcements'),
             'charters.view' => ['charters.view'],
             'charters.manage' => ['charters.create', 'charters.update'],
-            'agency.portal' => ['agency.portal'],
+            'agency.portal' => [
+                'agency.portal', 'agency_home.view', 'agency_booking.view', 'agency_bookings.view', 'agency_search.view',
+                'agency_holds.view', 'agency_quotas.view', 'agency_account.view',
+            ],
             'dcs.access' => ['dcs.access'],
             'dcs.checkin' => ['dcs.checkin'],
             'gate.access' => ['gate.access'],
