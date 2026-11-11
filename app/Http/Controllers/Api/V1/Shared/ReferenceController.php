@@ -25,7 +25,8 @@ class ReferenceController extends Controller
 
     public function airports(Request $request): AnonymousResourceCollection
     {
-        $airports = Airport::query()->with('country')->active()
+        // ?all=1 also the inactive ones (their time zone for older flights)
+        $airports = Airport::query()->with('country')->when(! $request->boolean('all'), fn ($q) => $q->active())
             ->when($request->filled('search'), fn ($q) => $q->where(fn ($x) => $x
                 ->where('iata_code', 'like', $request->string('search')->upper().'%')
                 ->orWhere('name', 'like', '%'.$request->string('search').'%')
