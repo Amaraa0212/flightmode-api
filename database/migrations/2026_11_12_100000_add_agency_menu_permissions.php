@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -21,16 +22,20 @@ return new class extends Migration
 
     public function up(): void
     {
-        $portalRoles = DB::table('permission_role')->join('permissions', 'permissions.id', '=', 'permission_role.permission_id')
-            ->where('permissions.key', 'agency.portal')->pluck('permission_role.role_id');
+        // roles that still exist (permission_role may keep rows of roles deleted by hand)
+        $portalRoles = DB::table('permission_role')
+            ->join('permissions', 'permissions.id', '=', 'permission_role.permission_id')
+            ->join('roles', 'roles.id', '=', 'permission_role.role_id')
+            ->where('permissions.key', 'agency.portal')->pluck('permission_role.role_id')->unique();
 
+        // safe to run again after a failed run: each step only adds what is missing
         foreach (self::MENUS as $path => $key) {
             $menu = DB::table('menus')->where('path', $path)->first();
-            if (! $menu || $menu->key || DB::table('permissions')->where('key', "{$key}.view")->exists()) {
+            if (! $menu || ($menu->key && $menu->key !== $key)) {
                 continue;
             }
             DB::table('menus')->where('id', $menu->id)->update(['key' => $key, 'permission_key' => null, 'updated_at' => now()]);
-            $id = DB::table('permissions')->insertGetId([
+            $id = DB::table('permissions')->where('key', "{$key}.view")->value('id') ?? DB::table('permissions')->insertGetId([
                 'menu_id' => $menu->id,
                 'key' => "{$key}.view",
                 'action' => 'view',
@@ -40,10 +45,17 @@ return new class extends Migration
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
-            DB::table('permission_role')->insert($portalRoles->map(fn ($role) => ['permission_id' => $id, 'role_id' => $role])->all());
+            $this->grant($id, $portalRoles);
         }
 
         $this->agencyRoles();
+    }
+
+    /** @param  Collection<int, int>  $roles */
+    private function grant(int $permissionId, $roles): void
+    {
+        $has = DB::table('permission_role')->where('permission_id', $permissionId)->pluck('role_id');
+        DB::table('permission_role')->insert($roles->diff($has)->map(fn ($role) => ['permission_id' => $permissionId, 'role_id' => $role])->values()->all());
     }
 
     /**
@@ -53,10 +65,8 @@ return new class extends Migration
     private function agencyRoles(): void
     {
         $users = DB::table('permissions')->whereIn('key', ['users.view', 'users.create', 'users.update', 'users.delete'])->pluck('id');
-        foreach (DB::table('roles')->where('slug', 'agency-admin')->pluck('id') as $role) {
-            $has = DB::table('permission_role')->where('role_id', $role)->pluck('permission_id');
-            DB::table('permission_role')->insert($users->diff($has)->map(fn ($p) => ['permission_id' => $p, 'role_id' => $role])->values()->all());
-        }
+        $admins = DB::table('roles')->where('slug', 'agency-admin')->pluck('id');
+        $users->each(fn ($permission) => $this->grant($permission, $admins));
 
         if (! DB::table('roles')->where('slug', 'agency-admin')->exists() || DB::table('roles')->where('slug', 'agency-agent')->exists()) {
             return;
