@@ -9,6 +9,7 @@ use App\Models\Flight;
 use App\Models\Passenger;
 use App\Services\Booking\BookingService;
 use App\Services\Checkin\CheckinService;
+use App\Services\Documents\ETicketService;
 use App\Services\Flight\FlightOperationsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
@@ -134,6 +135,20 @@ class FlightDocumentsTest extends TestCase
         $response = $this->get("/api/v1/admin/passengers/{$this->checkedIn->id}/eticket")->assertOk();
         $this->assertSame('application/pdf', $response->headers->get('content-type'));
         $this->assertStringStartsWith('%PDF', $response->getContent());
+
+        // language and price breakdown come from the request
+        $url = "/api/v1/admin/passengers/{$this->checkedIn->id}/eticket";
+        $this->get($url.'?lang=mn&fare=0')->assertOk()->assertHeader('content-type', 'application/pdf');
+        $this->getJson($url.'?lang=fr')->assertStatus(422)->assertJsonValidationErrors('lang');
+
+        $data = app(ETicketService::class)->data($this->checkedIn->fresh(), 'mn', false);
+        $this->assertSame('Явах нислэг', $data['legs'][0]['title']);
+        $this->assertFalse($data['with_fare']);
+        $this->assertCount(2, $data['travellers']);   // the adult and her infant
+        $html = view('documents.eticket', $data)->render();
+        $this->assertStringContainsString('АЯЛЛЫН ЦАХИМ ТИЙЗ', $html);
+        $this->assertStringNotContainsString('Тарифын код', $html);
+        $this->assertStringContainsString('Fare basis', view('documents.eticket', app(ETicketService::class)->data($this->checkedIn->fresh()))->render());
     }
 
     public function test_reports(): void

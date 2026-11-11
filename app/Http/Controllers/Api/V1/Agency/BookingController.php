@@ -133,7 +133,7 @@ class BookingController extends Controller
     public function eticket(Request $request, Passenger $passenger): Response
     {
         $this->ensureOwn($request, $passenger);
-        $file = $this->etickets->pdf($passenger);
+        $file = $this->etickets->pdf($passenger, ...array_values(ETicketService::options($request)));
 
         return response($file['content'], 200, [
             'Content-Type' => 'application/pdf',
@@ -145,8 +145,9 @@ class BookingController extends Controller
     {
         $this->ensureOwn($request, $passenger);
         $data = $request->validate(['email' => ['nullable', 'email']]);
+        ['lang' => $lang, 'with_fare' => $withFare] = ETicketService::options($request);
 
-        return $this->success('E-ticket sent to '.$this->etickets->email($passenger, $data['email'] ?? null).'.');
+        return $this->success('E-ticket sent to '.$this->etickets->email($passenger, $data['email'] ?? null, $lang, $withFare).'.');
     }
 
     /** Excel upload of a passenger list into an allocation. */
