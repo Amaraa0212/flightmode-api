@@ -55,6 +55,33 @@ class AgencyMenuPermissionTest extends TestCase
         $this->assertEqualsCanonicalizing(['/agency/holds', '/agency/quotas'], $this->paths());
     }
 
+    public function test_the_migration_resumes_after_a_failed_run_and_skips_deleted_roles(): void
+    {
+        // production: menus as before the migration, a role deleted by hand left its permission rows, and an
+        // earlier run stopped after converting the first menu
+        $migration = require database_path('migrations/2026_11_12_100000_add_agency_menu_permissions.php');
+        $migration->down();
+        DB::statement('PRAGMA defer_foreign_keys = ON');   // checked at commit; the test transaction is rolled back
+        DB::table('permission_role')->insert(['permission_id' => Permission::query()->where('key', 'agency.portal')->value('id'), 'role_id' => 9999]);
+        DB::table('menus')->where('path', '/agency')->update(['key' => 'agency_home', 'permission_key' => null]);
+        DB::table('permissions')->insert(['key' => 'agency_home.view', 'action' => 'view', 'name' => 'Нүүр: View', 'category' => 'agency_home',
+            'menu_id' => DB::table('menus')->where('path', '/agency')->value('id')]);
+
+        $migration->up();
+        $migration->up();   // and once more: nothing twice
+
+        $agent = Role::query()->where('slug', 'agency-agent')->firstOrFail();
+        foreach (['agency_home', 'agency_booking', 'agency_quotas', 'agency_account'] as $key) {
+            $this->assertSame(1, $agent->permissions()->where('key', "{$key}.view")->count(), $key);
+        }
+        $this->assertFalse(DB::table('permission_role')->where('role_id', 9999)
+            ->whereIn('permission_id', Permission::query()->where('key', 'like', 'agency\_%.view')->pluck('id'))->exists());
+
+        $this->actingAsRole('agency-agent');
+        $this->assertContains('/agency', $this->paths());
+        $this->assertContains('/agency/quotas', $this->paths());
+    }
+
     public function test_the_migration_gives_an_agency_admin_its_users_and_adds_the_ticketing_agent_role(): void
     {
         // production after the reset: Agency Admin with the portal only, no ticketing agent role
