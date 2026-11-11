@@ -2,7 +2,9 @@
 
 namespace Tests\Feature\Documents;
 
+use App\Enums\ActivityChannel;
 use App\Models\Passenger;
+use App\Services\ActivityLogger;
 use App\Services\Documents\ETicketService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\BuildsFlightData;
@@ -95,6 +97,35 @@ class AgencyEticketZipTest extends TestCase
 
         $this->get("/api/v1/agency/passengers/{$passenger->id}/eticket?header=airline")->assertOk()->assertHeader('content-type', 'application/pdf');
         $this->getJson("/api/v1/agency/passengers/{$passenger->id}/eticket?header=other")->assertUnprocessable()->assertJsonValidationErrors('header');
+    }
+
+    public function test_the_quota_passenger_list_shows_who_issued_each_ticket(): void
+    {
+        $allocation = $this->makeAllocation($this->makeFlight(), 5, ['Y' => 5]);
+        $agent = $this->actingAsRole('agency-agent', ['name' => 'Saraa Agent']);
+        $this->postJson('/api/v1/agency/bookings', ['allocation_id' => $allocation->id, 'passengers' => [$this->passengerPayload()]])->assertCreated();
+
+        $this->getJson("/api/v1/agency/allocations/{$allocation->id}/passengers")->assertOk()
+            ->assertJsonPath('data.0.issued_by', 'Saraa Agent');
+        $this->assertSame($agent->id, Passenger::query()->firstOrFail()->booking->created_by);
+
+        // a held booking ticketed later by someone else: that person issued it
+        $booking = Passenger::query()->firstOrFail()->booking;
+        $cashier = $this->makeUser('agency-admin', ['name' => 'Bold Cashier']);
+        app(ActivityLogger::class)->log(ActivityChannel::Agency, 'booking.ticketed', "PNR {$booking->pnr}", $booking, userId: $cashier->id);
+        $this->getJson("/api/v1/agency/allocations/{$allocation->id}/passengers")->assertOk()
+            ->assertJsonPath('data.0.issued_by', 'Bold Cashier');
+    }
+
+    public function test_the_conditions_heading_is_conditions_of_carriage(): void
+    {
+        $passenger = $this->bookedPassenger();
+        $service = app(ETicketService::class);
+
+        $this->assertStringContainsString('Conditions of Carriage', view('documents.eticket', $service->data($passenger))->render());
+        $mn = view('documents.eticket', $service->data($passenger, 'mn'))->render();
+        $this->assertStringContainsString('Тээвэрлэлтийн нөхцөл', $mn);
+        $this->assertStringNotContainsString('Тариф ба', $mn);
     }
 
     private function bookedPassenger(): Passenger
