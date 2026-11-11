@@ -82,15 +82,15 @@
     <table class="head">
         <tr>
             <td>
-                @if ($airline['logo_path'] && is_file($airline['logo_path']))
-                    <img src="{{ $airline['logo_path'] }}" style="height: 26px; margin-bottom: 4px;" alt=""><br>
+                @if ($issuer['logo_path'] && is_file($issuer['logo_path']))
+                    <img src="{{ $issuer['logo_path'] }}" style="height: 26px; margin-bottom: 4px;" alt=""><br>
                 @endif
-                <span class="airline">{{ $airline['name'] }}</span>
+                <span class="airline">{{ $issuer['name'] }}</span>
             </td>
             <td class="carrier">
                 <b>{{ $t('document_type') }}</b><br>
-                {{ collect([$airline['name'], $airline['address']])->filter()->implode(' · ') }}<br>
-                {{ collect([$airline['phone'], $airline['email']])->filter()->implode(' · ') }}
+                {{ collect([$issuer['name'], $issuer['address']])->filter()->implode(' · ') }}<br>
+                {{ collect([$issuer['phone'], $issuer['email']])->filter()->implode(' · ') }}
             </td>
         </tr>
     </table>

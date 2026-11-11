@@ -64,8 +64,8 @@ class PassengerController extends Controller
     {
         $this->access->ensureBooking($request->user(), $passenger->booking);
         $data = $request->validate(['email' => ['nullable', 'email']]);
-        ['lang' => $lang, 'with_fare' => $withFare, 'with_issued' => $withIssued] = ETicketService::options($request);
-        $to = $this->etickets->email($passenger, $data['email'] ?? null, $lang, $withFare, $withIssued);
+        ['lang' => $lang, 'with_fare' => $withFare, 'with_issued' => $withIssued, 'header' => $header] = ETicketService::options($request);
+        $to = $this->etickets->email($passenger, $data['email'] ?? null, $lang, $withFare, $withIssued, $header);
 
         return $this->success("E-ticket sent to {$to}.");
     }

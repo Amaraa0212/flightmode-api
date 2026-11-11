@@ -77,6 +77,26 @@ class AgencyEticketZipTest extends TestCase
         $this->assertSame(['Outbound journey', 'Return journey'], array_column($legs, 'title'));
     }
 
+    public function test_the_header_shows_the_agency_by_default_or_the_airline_when_asked(): void
+    {
+        $this->agency->update(['name' => 'Khaan Travel', 'phone' => '+976 7011 2233', 'email' => 'sales@khaan.test']);
+        $this->airline->update(['phone' => '+976 1800 0000']);
+        $passenger = $this->bookedPassenger();
+        $service = app(ETicketService::class);
+
+        $agencyHtml = view('documents.eticket', $service->data($passenger))->render();
+        $this->assertStringContainsString('Khaan Travel', $agencyHtml);
+        $this->assertStringContainsString('+976 7011 2233', $agencyHtml);
+        $this->assertStringNotContainsString('+976 1800 0000', $agencyHtml);
+
+        $airlineHtml = view('documents.eticket', $service->data($passenger, 'en', true, true, 'airline'))->render();
+        $this->assertStringContainsString('+976 1800 0000', $airlineHtml);
+        $this->assertStringNotContainsString('+976 7011 2233', $airlineHtml);
+
+        $this->get("/api/v1/agency/passengers/{$passenger->id}/eticket?header=airline")->assertOk()->assertHeader('content-type', 'application/pdf');
+        $this->getJson("/api/v1/agency/passengers/{$passenger->id}/eticket?header=other")->assertUnprocessable()->assertJsonValidationErrors('header');
+    }
+
     private function bookedPassenger(): Passenger
     {
         $allocation = $this->makeAllocation($this->makeFlight(), 5, ['Y' => 5]);
