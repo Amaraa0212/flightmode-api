@@ -9,7 +9,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\AllocationRequest;
 use App\Http\Resources\AllocationResource;
 use App\Http\Resources\PassengerResource;
+use App\Models\ActivityLog;
 use App\Models\AgencyAllocation;
+use App\Models\Booking;
 use App\Models\Flight;
 use App\Models\FlightSeries;
 use App\Models\Passenger;
@@ -209,11 +211,21 @@ class AllocationController extends Controller
     /** Adults of the allocation with their infant and segments, cancelled last. */
     public static function allocationPassengers(AgencyAllocation $allocation)
     {
-        return Passenger::query()
-            ->with(['booking', 'infant.segments', 'segments.ssrCodes', 'segments.flight'])
+        $passengers = Passenger::query()
+            ->with(['booking.creator:id,name', 'infant.segments', 'segments.ssrCodes', 'segments.flight'])
             ->whereNull('infant_of_passenger_id')
             ->whereHas('booking', fn ($q) => $q->where('agency_allocation_id', $allocation->id))
             ->orderBy('last_name')->orderBy('first_name')
             ->get();
+
+        // who issued the tickets: the user who ticketed a held booking, else the one who booked it
+        $bookings = $passengers->pluck('booking')->unique('id');
+        $ticketedBy = ActivityLog::query()->join('users', 'users.id', '=', 'activity_logs.user_id')
+            ->where('event', 'booking.ticketed')->where('subject_type', (new Booking)->getMorphClass())
+            ->whereIn('subject_id', $bookings->pluck('id'))
+            ->orderBy('activity_logs.id')->pluck('users.name', 'activity_logs.subject_id');
+        $bookings->each(fn (Booking $b) => $b->setAttribute('issued_by_name', $ticketedBy[$b->id] ?? $b->creator?->name));
+
+        return $passengers;
     }
 }

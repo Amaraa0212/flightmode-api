@@ -124,6 +124,35 @@ class CompanySettingsTest extends TestCase
         $this->putJson("/api/v1/admin/agencies/{$id}", ['name' => 'Mine now'])->assertForbidden();
     }
 
+    public function test_an_existing_agency_is_linked_with_every_airline_or_given_to_one_on_edit(): void
+    {
+        $other = Airline::create(['name' => 'Other Air', 'iata_code' => 'OT', 'numeric_code' => '456']);
+        $this->agency->airlines()->updateExistingPivot($this->airline->id, ['is_active' => false]);   // suspended by Test Air
+        $this->actingAsRole('system-admin');
+
+        // a plain edit leaves the contracts alone
+        $this->putJson("/api/v1/admin/agencies/{$this->agency->id}", ['phone' => '+976 8888 0000'])->assertOk();
+        $this->assertSame([$this->airline->id], $this->agency->airlines()->pluck('airlines.id')->all());
+
+        $this->putJson("/api/v1/admin/agencies/{$this->agency->id}", ['all_airlines' => true])->assertOk();
+        $contracts = $this->agency->airlines()->get()->keyBy('id');
+        $this->assertEqualsCanonicalizing([$this->airline->id, $other->id], $contracts->keys()->all());
+        $this->assertFalse((bool) $contracts[$this->airline->id]->pivot->is_active);   // the suspension stays
+        $this->assertTrue((bool) $contracts[$other->id]->pivot->is_active);
+
+        // one airline's only when no other airline has a contract
+        $this->putJson("/api/v1/admin/agencies/{$this->agency->id}", ['owner_airline_id' => $other->id])
+            ->assertUnprocessable()->assertJsonValidationErrors('owner_airline_id');
+        $own = Agency::create(['name' => 'Loose', 'code' => 'LOOSE', 'channel' => 'agency']);
+        $this->putJson("/api/v1/admin/agencies/{$own->id}", ['owner_airline_id' => $other->id])->assertOk()
+            ->assertJsonPath('data.owner_airline_id', $other->id);
+        $this->assertTrue($own->airlines()->whereKey($other->id)->exists());
+
+        // an airline cannot do this
+        $this->actingAsRole('airline-admin', ['airline_id' => $other->id]);
+        $this->putJson("/api/v1/admin/agencies/{$this->agency->id}", ['all_airlines' => true])->assertForbidden();
+    }
+
     public function test_a_system_administrator_creates_an_agency_for_one_airline(): void
     {
         $this->actingAsRole('system-admin');

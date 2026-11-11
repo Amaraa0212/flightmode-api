@@ -51,7 +51,7 @@ return [
     'amount' => 'Amount',
     'fare_subtotal' => 'Fare subtotal',
     'tax_subtotal' => 'Taxes, fees & carrier charges',
-    'conditions_title' => 'Fare conditions and Conditions of Carriage',
+    'conditions_title' => 'Conditions of Carriage',
     'conditions_default' => 'Carriage is subject to the carrier\'s Conditions of Carriage, published schedule and applicable international conventions. This receipt does not replace passport, visa, health or entry documents.',
     'important' => 'Important:',
     'footer' => 'This itinerary receipt is not a boarding pass. Travel documents and entry requirements are the passenger\'s responsibility. All times are local.',
