@@ -9,6 +9,9 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('reference')->group(function () {
     Route::get('countries', [ReferenceController::class, 'countries']);
     Route::get('airports', [ReferenceController::class, 'airports']);
+    Route::get('iata-airports', [ReferenceController::class, 'iataAirports']);
+    Route::get('cities', [ReferenceController::class, 'cities']);
+    Route::get('timezones', [ReferenceController::class, 'timezones']);
     Route::get('ssr-codes', [ReferenceController::class, 'ssrCodes']);
     Route::get('enums', [ReferenceController::class, 'enums']);
 });
