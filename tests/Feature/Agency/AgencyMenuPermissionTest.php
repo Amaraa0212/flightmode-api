@@ -41,6 +41,20 @@ class AgencyMenuPermissionTest extends TestCase
         $this->assertContains('/agency/quotas', $this->paths());
     }
 
+    public function test_a_role_given_some_agency_menus_also_gets_the_portal(): void
+    {
+        $this->actingAsRole('system-admin');
+        $id = $this->postJson('/api/v1/admin/roles', [
+            'name' => 'Agency cashier', 'slug' => 'agency-cashier', 'scope' => 'agency', 'permissions' => ['agency_quotas.view', 'agency_holds.view'],
+        ])->assertCreated()->json('data.id');
+
+        $this->assertEqualsCanonicalizing(['agency.portal', 'agency_holds.view', 'agency_quotas.view'],
+            Role::query()->findOrFail($id)->permissions()->pluck('key')->all());
+
+        $this->actingAsRole('agency-agent', ['role_id' => $id]);
+        $this->assertEqualsCanonicalizing(['/agency/holds', '/agency/quotas'], $this->paths());
+    }
+
     public function test_the_migration_gives_an_agency_admin_its_users_and_adds_the_ticketing_agent_role(): void
     {
         // production after the reset: Agency Admin with the portal only, no ticketing agent role

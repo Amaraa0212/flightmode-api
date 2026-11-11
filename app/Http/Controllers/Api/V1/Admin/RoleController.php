@@ -192,6 +192,10 @@ class RoleController extends Controller
     /** @param array<string> $keys */
     private function syncPermissions(Role $role, array $keys): void
     {
-        $role->permissions()->sync(Permission::query()->whereIn('key', $keys)->pluck('id'));
+        // an agency menu is of no use without the portal itself (the agency API checks agency.portal)
+        if (collect($keys)->contains(fn (string $key) => preg_match('/^agency_(home|booking|bookings|search|holds|quotas|account)\./', $key))) {
+            $keys[] = 'agency.portal';
+        }
+        $role->permissions()->sync(Permission::query()->whereIn('key', array_unique($keys))->pluck('id'));
     }
 }
