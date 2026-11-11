@@ -15,6 +15,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Travel agencies. Airline users see the agencies contracted with their airline; what they add is their own
@@ -75,12 +76,17 @@ class AgencyController extends Controller
     {
         $data = collect($request->validated())->except(['owner_airline_id', 'all_airlines']);
         // a contracted airline may still switch the Chinggis push of a shared agency; the rest is the owner's
-        if ($data->keys()->diff(['chinggis_sync'])->isEmpty()) {
+        if (collect($request->validated())->keys()->diff(['chinggis_sync'])->isEmpty()) {
             $this->ensureVisible($request->user(), $agency);
         } else {
             $this->ensureOwned($request->user(), $agency);
         }
-        $agency->update($data->all());
+        DB::transaction(function () use ($request, $agency, $data) {
+            $agency->update($data->all());
+            if ($request->user()->isSystemAdmin() && ($request->exists('owner_airline_id') || $request->boolean('all_airlines'))) {
+                $this->changeOwner($agency, $request->boolean('all_airlines') ? null : $request->validated('owner_airline_id'), $request->boolean('all_airlines'));
+            }
+        });
 
         return $this->success('Agency updated.', new AgencyResource($agency->load(['airlines' => $this->ownContracts($request->user())])));
     }
@@ -105,6 +111,24 @@ class AgencyController extends Controller
             ->when(! $user->isSystemAdmin() && $user->airline_id, fn ($q) => $q->whereHas('airlines', fn ($a) => $a->whereKey($user->airline_id))
                 ->where(fn ($o) => $o->whereNull('owner_airline_id')->orWhere('owner_airline_id', $user->airline_id)))
             ->when(! $user->isSystemAdmin() && ! $user->airline_id, fn ($q) => $q->whereKey($user->agency_id ?? 0));
+    }
+
+    /**
+     * System administrator: the agency becomes one airline's (with its contract), or shared — and with
+     * every airline at once, a contract with each one it has none with yet. Existing contracts are kept.
+     */
+    private function changeOwner(Agency $agency, ?int $ownerId, bool $everyAirline): void
+    {
+        if ($ownerId) {
+            if ($agency->airlines()->whereKeyNot($ownerId)->exists()) {
+                throw ValidationException::withMessages(['owner_airline_id' => 'The agency has contracts with other airlines: remove them before giving it to one airline.']);
+            }
+            $agency->airlines()->syncWithoutDetaching([$ownerId => ['is_active' => true]]);
+        } elseif ($everyAirline) {
+            $missing = Airline::query()->whereNotIn('id', $agency->airlines()->pluck('airlines.id'))->pluck('id');
+            $agency->airlines()->attach($missing->mapWithKeys(fn ($id) => [$id => ['is_active' => true]])->all());
+        }
+        $agency->update(['owner_airline_id' => $ownerId]);
     }
 
     /** Only the airline that created an agency changes or deletes it (a system administrator: any agency) */
