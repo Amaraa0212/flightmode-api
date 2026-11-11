@@ -7,6 +7,7 @@ use App\Enums\PassengerType;
 use App\Enums\SegmentStatus;
 use App\Exceptions\BusinessRuleException;
 use App\Mail\ETicketMail;
+use App\Models\Booking;
 use App\Models\Passenger;
 use App\Models\PassengerSegment;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -25,10 +26,14 @@ class ETicketService
 {
     public const LANGUAGES = ['en', 'mn'];
 
+    /** Whose details head the e-ticket: the selling agency's or the airline's */
+    public const HEADERS = ['agency', 'airline'];
+
     /**
-     * ?lang=en|mn&fare=1|0&issued=1|0 of a download or e-mail request (prices and the issue date are shown unless 0).
+     * ?lang=en|mn&fare=1|0&issued=1|0&header=agency|airline of a download or e-mail request (prices and the issue
+     * date are shown unless 0; the header is the agency's when the booking has one, unless asked otherwise).
      *
-     * @return array{lang: string, with_fare: bool, with_issued: bool}
+     * @return array{lang: string, with_fare: bool, with_issued: bool, header: ?string}
      */
     public static function options(Request $request): array
     {
@@ -36,17 +41,19 @@ class ETicketService
             'lang' => ['nullable', Rule::in(self::LANGUAGES)],
             'fare' => ['nullable', 'boolean'],
             'issued' => ['nullable', 'boolean'],
+            'header' => ['nullable', Rule::in(self::HEADERS)],
         ]);
 
         return [
             'lang' => $data['lang'] ?? 'en',
             'with_fare' => $request->has('fare') ? $request->boolean('fare') : true,
             'with_issued' => $request->has('issued') ? $request->boolean('issued') : true,
+            'header' => $data['header'] ?? null,
         ];
     }
 
     /** @return array<string, mixed> */
-    public function data(Passenger $passenger, string $lang = 'en', bool $withFare = true, bool $withIssued = true): array
+    public function data(Passenger $passenger, string $lang = 'en', bool $withFare = true, bool $withIssued = true, ?string $header = null): array
     {
         if ($passenger->isInfant()) {
             throw BusinessRuleException::make('eticket_infant', 'The e-ticket is issued for the adult; the infant is included in it.');
@@ -147,6 +154,7 @@ class ETicketService
                 'conditions_of_carriage' => $airline->conditions_of_carriage,
             ],
             'agency' => $booking->agency?->name,
+            'issuer' => $this->issuer($booking, $header),
             'pnr' => $booking->pnr,
             'ticket_numbers' => $tickets->implode(' · ') ?: '—',
             'status' => match (true) {
@@ -186,10 +194,32 @@ class ETicketService
         return $lang === 'mn' ? $date->format('Y.m.d') : strtoupper($date->format('d M Y'));
     }
 
-    /** @return array{filename: string, content: string} */
-    public function pdf(Passenger $passenger, string $lang = 'en', bool $withFare = true, bool $withIssued = true): array
+    /**
+     * The details at the top of the e-ticket: the agency that sold it (by default when there is one) or the airline.
+     *
+     * @return array{name: string, address: ?string, phone: ?string, email: ?string, logo_path: ?string}
+     */
+    private function issuer(Booking $booking, ?string $header): array
     {
-        $data = $this->data($passenger, $lang, $withFare, $withIssued);
+        $agency = $booking->agency;
+        if ($agency && $header !== 'airline') {
+            return ['name' => $agency->name, 'address' => $agency->address, 'phone' => $agency->phone, 'email' => $agency->email, 'logo_path' => null];
+        }
+        $airline = $booking->airline;
+
+        return [
+            'name' => $airline->name,
+            'address' => $airline->address,
+            'phone' => $airline->phone,
+            'email' => $airline->email,
+            'logo_path' => $airline->logo_path ? public_path($airline->logo_path) : null,
+        ];
+    }
+
+    /** @return array{filename: string, content: string} */
+    public function pdf(Passenger $passenger, string $lang = 'en', bool $withFare = true, bool $withIssued = true, ?string $header = null): array
+    {
+        $data = $this->data($passenger, $lang, $withFare, $withIssued, $header);
 
         $pdf = Pdf::loadView('documents.eticket', $data)
             ->setPaper('a4')
@@ -202,14 +232,14 @@ class ETicketService
         ];
     }
 
-    public function email(Passenger $passenger, ?string $to = null, string $lang = 'en', bool $withFare = true, bool $withIssued = true): string
+    public function email(Passenger $passenger, ?string $to = null, string $lang = 'en', bool $withFare = true, bool $withIssued = true, ?string $header = null): string
     {
         $to ??= $passenger->email ?? $passenger->booking->contact_email;
         if (! $to) {
             throw BusinessRuleException::make('no_email', 'The passenger has no e-mail address.');
         }
 
-        $file = $this->pdf($passenger, $lang, $withFare, $withIssued);
+        $file = $this->pdf($passenger, $lang, $withFare, $withIssued, $header);
         Mail::to($to)->send(new ETicketMail($passenger->booking->pnr, $file['filename'], $file['content']));
         $passenger->booking->forceFill(['ticket_emailed_at' => now()])->save();
 
@@ -222,7 +252,7 @@ class ETicketService
      * @param  iterable<Passenger>  $passengers
      * @return array{filename: string, content: string}
      */
-    public function zip(iterable $passengers, string $lang = 'en', bool $withFare = true, bool $withIssued = true): array
+    public function zip(iterable $passengers, string $lang = 'en', bool $withFare = true, bool $withIssued = true, ?string $header = null): array
     {
         $path = tempnam(sys_get_temp_dir(), 'etk');
         $zip = new ZipArchive;
@@ -232,7 +262,7 @@ class ETicketService
             if ($passenger->isInfant()) {
                 continue;
             }
-            $file = $this->pdf($passenger, $lang, $withFare, $withIssued);
+            $file = $this->pdf($passenger, $lang, $withFare, $withIssued, $header);
             // PNR-LAST-FIRST.pdf (a name twice in the list gets -2, -3)
             $name = trim(preg_replace('/[^A-Za-z0-9]+/', '-', $passenger->booking->pnr.' '.$passenger->last_name.' '.$passenger->first_name), '-');
             $names[$name] = ($names[$name] ?? 0) + 1;

@@ -146,9 +146,9 @@ class BookingController extends Controller
     {
         $this->ensureOwn($request, $passenger);
         $data = $request->validate(['email' => ['nullable', 'email']]);
-        ['lang' => $lang, 'with_fare' => $withFare, 'with_issued' => $withIssued] = ETicketService::options($request);
+        ['lang' => $lang, 'with_fare' => $withFare, 'with_issued' => $withIssued, 'header' => $header] = ETicketService::options($request);
 
-        return $this->success('E-ticket sent to '.$this->etickets->email($passenger, $data['email'] ?? null, $lang, $withFare, $withIssued).'.');
+        return $this->success('E-ticket sent to '.$this->etickets->email($passenger, $data['email'] ?? null, $lang, $withFare, $withIssued, $header).'.');
     }
 
     /** The e-tickets of the checked passengers in one ZIP: { passenger_ids: [], lang?, fare?, issued? } */
