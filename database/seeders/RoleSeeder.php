@@ -39,7 +39,7 @@ class RoleSeeder extends Seeder
             ]],
             ['slug' => 'gate-agent', 'name' => 'Gate agent', 'scope' => RoleScope::Airport, 'permissions' => ['gate.access']],
             ['slug' => 'agency-admin', 'name' => 'Agency administrator', 'scope' => RoleScope::Agency, 'permissions' => [
-                'agency.portal', 'users.manage', 'charters.manage',
+                'agency.portal', 'users.manage', 'charters.manage', 'agency_conditions.manage',
             ]],
             ['slug' => 'agency-agent', 'name' => 'Agency ticketing agent', 'scope' => RoleScope::Agency, 'permissions' => ['agency.portal']],
         ];

@@ -41,6 +41,7 @@ final class MenuCatalog
                 ['key' => 'agency_holds', 'name' => 'Hold-ууд', 'icon' => 'Timer', 'path' => '/agency/holds', 'actions' => ['view'], 'scopes' => ['agency']],
                 ['key' => 'agency_quotas', 'name' => 'Миний квот', 'icon' => 'Ticket', 'path' => '/agency/quotas', 'actions' => ['view'], 'scopes' => ['agency']],
                 ['key' => 'agency_account', 'name' => 'Миний данс', 'icon' => 'Wallet', 'path' => '/agency/account', 'actions' => ['view'], 'scopes' => ['agency']],
+                ['key' => 'agency_conditions', 'name' => 'Тээвэрлэлтийн нөхцөл', 'icon' => 'FileText', 'path' => '/agency/conditions', 'actions' => ['view', 'update'], 'scopes' => ['agency']],
             ]],
             ['name' => 'Aircraft management', 'menus' => [
                 ['key' => 'aircraft', 'name' => 'Fleets', 'icon' => 'Plane', 'path' => '/fleet/aircraft', 'actions' => $crud],
@@ -190,8 +191,9 @@ final class MenuCatalog
             'charters.manage' => ['charters.create', 'charters.update'],
             'agency.portal' => [
                 'agency.portal', 'agency_home.view', 'agency_booking.view', 'agency_bookings.view', 'agency_search.view',
-                'agency_holds.view', 'agency_quotas.view', 'agency_account.view',
+                'agency_holds.view', 'agency_quotas.view', 'agency_account.view', 'agency_conditions.view',
             ],
+            'agency_conditions.manage' => ['agency_conditions.update'],
             'dcs.access' => ['dcs.access'],
             'dcs.checkin' => ['dcs.checkin'],
             'gate.access' => ['gate.access'],

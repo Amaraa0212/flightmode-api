@@ -15,6 +15,7 @@ use Carbon\CarbonInterface;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use ZipArchive;
 
@@ -155,6 +156,7 @@ class ETicketService
             ],
             'agency' => $booking->agency?->name,
             'issuer' => $this->issuer($booking, $header),
+            'conditions_html' => $this->conditions($booking, $header),
             'pnr' => $booking->pnr,
             'ticket_numbers' => $tickets->implode(' · ') ?: '—',
             'status' => match (true) {
@@ -199,6 +201,23 @@ class ETicketService
      *
      * @return array{name: string, address: ?string, phone: ?string, email: ?string, logo_path: ?string}
      */
+    /**
+     * Conditions of carriage under the e-ticket, as HTML from their Markdown: the agency's own when the ticket carries
+     * the agency's details and it has written some, otherwise the airline's (null: the default text).
+     */
+    private function conditions(Booking $booking, ?string $header): ?string
+    {
+        $agency = $booking->agency;
+        $markdown = $agency && $header !== 'airline' && filled($agency->conditions_of_carriage)
+            ? $agency->conditions_of_carriage
+            : $booking->airline->conditions_of_carriage;
+
+        return filled($markdown)
+            ? strip_tags(Str::markdown($markdown, ['html_input' => 'strip', 'allow_unsafe_links' => false]),
+                '<p><br><b><strong><em><i><ul><ol><li><h1><h2><h3><h4>')
+            : null;
+    }
+
     private function issuer(Booking $booking, ?string $header): array
     {
         $agency = $booking->agency;

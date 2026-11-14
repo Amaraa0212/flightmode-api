@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\Admin\CharterRequestController;
 use App\Http\Controllers\Api\V1\Agency\AccountController;
 use App\Http\Controllers\Api\V1\Agency\AllocationController;
 use App\Http\Controllers\Api\V1\Agency\BookingController;
+use App\Http\Controllers\Api\V1\Agency\ConditionsController;
 use App\Http\Controllers\Api\V1\Agency\HoldController;
 use Illuminate\Support\Facades\Route;
 
@@ -12,6 +13,9 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::middleware('can:agency.portal')->group(function () {
+    // the agency's own conditions of carriage (e-tickets with the agency header)
+    Route::get('conditions', [ConditionsController::class, 'show'])->middleware('perm:agency_conditions.view');
+    Route::put('conditions', [ConditionsController::class, 'update'])->middleware('perm:agency_conditions.update');
     Route::get('allocations', [AllocationController::class, 'index']);
     Route::get('allocations/{allocation}', [AllocationController::class, 'show']);
     Route::post('allocations/{allocation}/schedule-changes/seen', [AllocationController::class, 'scheduleChangesSeen']);

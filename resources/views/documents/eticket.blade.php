@@ -68,6 +68,10 @@
         .fare-table tfoot td { font-weight: bold; }
         .fare-table tfoot tr.grand td { color: #273aa7; font-size: 9.5px; }
         .conditions { border-top: 1px solid #e7eaf0; padding: 16px 18px; }
+        /* the Markdown of the airline's / agency's conditions */
+        .terms .terms-body h1, .terms .terms-body h2, .terms .terms-body h3, .terms .terms-body h4 { font-size: 9.5px; margin: 8px 0 3px; padding: 0; border: 0; color: #1c2434; }
+        .terms-body p { margin: 0 0 5px; }
+        .terms-body ul, .terms-body ol { margin: 0 0 5px 14px; padding: 0; }
         .terms { border: 1px solid #e7eaf0; border-radius: 8px; }
         .terms h3 { margin: 0; padding: 8px 10px; font-size: 9px; border-bottom: 1px solid #e7eaf0; }
         .terms-body { padding: 9px 10px; color: #667085; font-size: 7.5px; }
@@ -225,8 +229,8 @@
         <div class="terms">
             <h3>{{ $t('conditions_title') }}</h3>
             <div class="terms-body">
-                @if ($airline['conditions_of_carriage'])
-                    {!! strip_tags($airline['conditions_of_carriage'], '<p><br><b><strong><ul><ol><li><h3><h4>') !!}
+                @if ($conditions_html)
+                    {!! $conditions_html !!}
                 @else
                     {{ $t('conditions_default') }}
                 @endif
