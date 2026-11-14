@@ -18,11 +18,11 @@ use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 use Throwable;
 
 /**
- * Bulk passenger upload for an allocation (one booking per row, as in the legacy import).
- * Every row is checked first; nothing is saved when any row is wrong.
+ * Bulk passenger upload for an allocation: one booking per row, as in the legacy import, unless rows share a
+ * booking_group — those become one booking (one PNR). Every row is checked first; nothing is saved when any row is wrong.
  *
  * Columns: firstname, lastname, sex, dob, nationality, passport_number, issued_state, expire_date,
- *          email, phone, person_code, cabin (default Y), agent_contact
+ *          email, phone, person_code, cabin (default Y), agent_contact, booking_group
  */
 class PassengerImportService
 {
@@ -74,7 +74,10 @@ class PassengerImportService
                 $errors[] = "Row {$line}: cabin must be F, C, W or Y.";
             }
 
-            $passengers[] = ['line' => $line, 'data' => $data, 'contact_phone' => $row->get('agent_contact')];
+            $group = trim((string) $row->get('booking_group'));
+            $passengers[] = ['line' => $line, 'data' => $data, 'contact_phone' => $row->get('agent_contact'),
+                // rows without a group: a booking each
+                'group' => $group !== '' ? 'g:'.mb_strtoupper($group) : 'row:'.$line];
         }
 
         if ($passengers === []) {
@@ -90,20 +93,23 @@ class PassengerImportService
             }
 
             $pnrs = [];
-            foreach ($passengers as $row) {
+            $created = 0;
+            foreach (collect($passengers)->groupBy('group') as $rows) {
+                $lines = $rows->pluck('line')->implode(', ');
                 try {
                     $booking = $this->bookings->create([
                         'allocation_id' => $allocation->id,
-                        'contact_phone' => $row['contact_phone'],
-                        'passengers' => [$row['data']],
+                        'contact_phone' => $rows->pluck('contact_phone')->filter()->first(),
+                        'passengers' => $rows->pluck('data')->all(),
                     ], $actor, BookingSource::Import);
                 } catch (BusinessRuleException $e) {
-                    throw BusinessRuleException::make($e->errorCode, "Row {$row['line']}: ".$e->getMessage(), $e->context);
+                    throw BusinessRuleException::make($e->errorCode, ($rows->count() > 1 ? "Rows {$lines}: " : "Row {$lines}: ").$e->getMessage(), $e->context);
                 }
                 $pnrs[] = $booking->pnr;
+                $created += $rows->count();
             }
 
-            return ['created' => count($pnrs), 'bookings' => $pnrs];
+            return ['created' => $created, 'bookings' => $pnrs];
         });
     }
 
