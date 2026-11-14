@@ -17,7 +17,7 @@ class PassengerRules
      * @param  array<string, mixed>  $adult
      * @param  array<string, mixed>|null  $infant
      */
-    public function validate(Flight $flight, array $adult, ?array $infant = null): void
+    public function validate(Flight $flight, array $adult, ?array $infant = null, bool $expiryRequired = false): void
     {
         $departure = $flight->departureAt();
         $international = ! $flight->isDomestic();
@@ -36,9 +36,9 @@ class PassengerRules
             }
         }
 
-        $this->assertDocument($adult, $departure, $international, 'Passenger');
+        $this->assertDocument($adult, $departure, $international, 'Passenger', $expiryRequired);
         if ($infant !== null) {
-            $this->assertDocument($infant, $departure, $international, 'Infant');
+            $this->assertDocument($infant, $departure, $international, 'Infant', $expiryRequired);
         }
     }
 
@@ -46,12 +46,13 @@ class PassengerRules
      * Travel document of one person:
      *  - Mongolian national ID card: MN citizens only, domestic flights only; from age 45 it has no end date
      *    (expiry 0000/00/00), so its expiry is not checked
-     *  - international: the passport must be valid PASSPORT_MIN_VALIDITY months after departure
+     *  - international: the passport must be valid PASSPORT_MIN_VALIDITY months after departure (agencies must
+     *    give the expiry date, so it can be checked)
      *  - domestic: the document must be valid on the departure date
      *
      * @param  array<string, mixed>  $person
      */
-    private function assertDocument(array $person, Carbon $departure, bool $international, string $who): void
+    private function assertDocument(array $person, Carbon $departure, bool $international, string $who, bool $expiryRequired = false): void
     {
         if (($person['document_type'] ?? null) === self::NATIONAL_ID) {
             if (strtoupper((string) ($person['nationality'] ?? '')) !== 'MN') {
@@ -67,6 +68,9 @@ class PassengerRules
         }
 
         if ($international) {
+            if ($expiryRequired && empty($person['document_expires_at'])) {
+                throw BusinessRuleException::make('passport_expiry_required', "{$who}: the passport expiry date is required for an international flight.");
+            }
             $this->assertPassportValidity($person['document_expires_at'] ?? null, $departure, $who);
 
             return;

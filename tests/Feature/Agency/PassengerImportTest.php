@@ -57,6 +57,31 @@ class PassengerImportTest extends TestCase
         $this->assertSame('1992-03-04', Passenger::query()->where('document_number', 'E2222222')->sole()->date_of_birth->toDateString());
     }
 
+    public function test_rows_with_the_same_booking_group_become_one_booking(): void
+    {
+        $allocation = $this->makeAllocation($this->makeFlight());
+        $this->actingAsRole('agency-agent');
+        $expires = now()->addYears(3)->toDateString();
+        $book = new Spreadsheet;
+        $book->getActiveSheet()->fromArray([
+            [...self::HEADINGS, 'booking_group'],
+            ['Bat', 'Dorj', 'M', '1990-05-01', 'MN', 'E1111111', 'MN', $expires, null, '99112233', 'Y', null, 'family'],
+            ['Saraa', 'Dorj', 'F', '1992-03-04', 'MN', 'E2222222', 'MN', $expires, null, null, 'Y', null, 'FAMILY'],
+            ['Bold', 'Tsend', 'M', '1985-01-01', 'MN', 'E3333333', 'MN', $expires, null, null, 'Y', null, null],
+        ], null, 'A1', true);
+        $path = tempnam(sys_get_temp_dir(), 'imp').'.xlsx';
+        IOFactory::createWriter($book, 'Xlsx')->save($path);
+
+        $result = $this->post("/api/v1/agency/allocations/{$allocation->id}/import",
+            ['file' => new UploadedFile($path, 'passengers.xlsx', null, null, true)], ['Accept' => 'application/json'])
+            ->assertCreated()->assertJsonPath('data.created', 3)->json('data');
+
+        $this->assertCount(2, $result['bookings']);
+        $bat = Passenger::query()->where('document_number', 'E1111111')->sole();
+        $this->assertSame($bat->booking_id, Passenger::query()->where('document_number', 'E2222222')->sole()->booking_id);
+        $this->assertNotSame($bat->booking_id, Passenger::query()->where('document_number', 'E3333333')->sole()->booking_id);
+    }
+
     public function test_invalid_rows_reject_the_whole_file_with_line_numbers(): void
     {
         $allocation = $this->makeAllocation($this->makeFlight());

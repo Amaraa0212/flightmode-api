@@ -251,7 +251,8 @@ class BookingService
             $attributes = $this->passengerAttributes(array_merge($passenger->only(self::PASSENGER_FIELDS), $data));
             $infantData = array_key_exists('infant', $data) ? $data['infant'] : ($passenger->infant ? $passenger->infant->only(self::PASSENGER_FIELDS) : null);
 
-            $this->rules->validate($firstFlight, $attributes, $infantData);
+            $this->rules->validate($firstFlight, $attributes, $infantData,
+                in_array($channel, [ActivityChannel::Agency, ActivityChannel::AgencyApi], true));
             $this->assertNotDuplicate($segments->pluck('flight_id')->all(), $attributes['document_number'] ?? null, $passenger->id);
 
             $original = $passenger->getOriginal();
@@ -439,7 +440,7 @@ class BookingService
             throw BusinessRuleException::make('infant_without_adult', 'An infant must be added together with an adult.');
         }
 
-        $this->rules->validate($firstFlight, $attributes, $infantData);
+        $this->rules->validate($firstFlight, $attributes, $infantData, $this->fromAgency($booking->source));
         $this->assertNotDuplicate($flights->pluck('id')->all(), $attributes['document_number'] ?? null);
 
         $bucket = $this->resolveBucket($allocation, $row['allocation_fare_id'] ?? null, $cabin);
@@ -614,6 +615,14 @@ class BookingService
     }
 
     /** @param array<int> $flightIds */
+    /** Bookings an agency makes (portal, partner API, Excel): the passport expiry must be given on international flights */
+    private function fromAgency(BookingSource|string|null $source): bool
+    {
+        $source = $source instanceof BookingSource ? $source : BookingSource::tryFrom((string) $source);
+
+        return in_array($source, [BookingSource::Agency, BookingSource::AgencyApi, BookingSource::Import], true);
+    }
+
     private function assertNotDuplicate(array $flightIds, ?string $documentNumber, ?int $exceptPassengerId = null): void
     {
         if (! $documentNumber) {
