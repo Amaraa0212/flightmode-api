@@ -14,6 +14,9 @@ class BookingResource extends JsonResource
         return [
             'id' => $this->id,
             'pnr' => $this->pnr,
+            // open jaw: the PNR of the other airline's booking of the same trip
+            'linked_booking' => $this->whenLoaded('linkedBooking', fn () => $this->linkedBooking
+                ? ['id' => $this->linkedBooking->id, 'pnr' => $this->linkedBooking->pnr] : null),
             'airline_id' => $this->airline_id,
             'agency' => $this->whenLoaded('agency', fn () => $this->agency ? ['id' => $this->agency->id, 'name' => $this->agency->name] : null),
             'agency_allocation_id' => $this->agency_allocation_id,

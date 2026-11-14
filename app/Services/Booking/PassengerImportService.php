@@ -31,7 +31,7 @@ class PassengerImportService
     ) {}
 
     /** @return array{created: int, bookings: array<int, string>} */
-    public function import(UploadedFile $file, AgencyAllocation $allocation, User $actor, bool $replaceExisting = false): array
+    public function import(UploadedFile $file, AgencyAllocation $allocation, User $actor, bool $replaceExisting = false, ?AgencyAllocation $return = null): array
     {
         $rows = SpreadsheetReader::rows($file);
 
@@ -87,7 +87,7 @@ class PassengerImportService
             throw BusinessRuleException::make('import_invalid', 'The file has errors; nothing was imported.', ['errors' => $errors]);
         }
 
-        return DB::transaction(function () use ($passengers, $allocation, $actor, $replaceExisting) {
+        return DB::transaction(function () use ($passengers, $allocation, $actor, $replaceExisting, $return) {
             if ($replaceExisting) {
                 $this->cancelExisting($allocation);
             }
@@ -99,13 +99,16 @@ class PassengerImportService
                 try {
                     $booking = $this->bookings->create([
                         'allocation_id' => $allocation->id,
+                        // RT: the same people back (two linked bookings when it is another airline's)
+                        'return_allocation_id' => $return?->id,
                         'contact_phone' => $rows->pluck('contact_phone')->filter()->first(),
                         'passengers' => $rows->pluck('data')->all(),
                     ], $actor, BookingSource::Import);
                 } catch (BusinessRuleException $e) {
                     throw BusinessRuleException::make($e->errorCode, ($rows->count() > 1 ? "Rows {$lines}: " : "Row {$lines}: ").$e->getMessage(), $e->context);
                 }
-                $pnrs[] = $booking->pnr;
+                $pnrs[] = $booking->relationLoaded('linkedBooking') && $booking->linkedBooking
+                    ? "{$booking->pnr} / {$booking->linkedBooking->pnr}" : $booking->pnr;
                 $created += $rows->count();
             }
 
