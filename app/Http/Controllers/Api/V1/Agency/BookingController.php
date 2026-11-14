@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api\V1\Agency;
 
 use App\Enums\ActivityChannel;
 use App\Enums\BookingSource;
+use App\Enums\CabinClass;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Shared\PassengerFields;
 use App\Http\Requests\Shared\StoreBookingRequest;
 use App\Http\Requests\Shared\UpdatePassengerRequest;
 use App\Http\Resources\BookingResource;
@@ -22,6 +24,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -149,6 +152,23 @@ class BookingController extends Controller
         ['lang' => $lang, 'with_fare' => $withFare, 'with_issued' => $withIssued, 'header' => $header] = ETicketService::options($request);
 
         return $this->success('E-ticket sent to '.$this->etickets->email($passenger, $data['email'] ?? null, $lang, $withFare, $withIssued, $header).'.');
+    }
+
+    /** More passengers in this booking (same PNR, flights and quota): { passengers: [...] } */
+    public function addPassengers(Request $request, Booking $booking): JsonResponse
+    {
+        $this->access->ensureBooking($request->user(), $booking);
+        $data = $request->validate([
+            'passengers' => ['required', 'array', 'min:1', 'max:50'],
+            ...PassengerFields::rules('passengers.*.'),
+            // the booking's cabin when not given
+            'passengers.*.cabin_class' => ['nullable', Rule::enum(CabinClass::class)],
+        ]);
+
+        $booking = $this->bookings->addToBooking($booking, $data['passengers'], $request->user(), $this->source($request));
+
+        return $this->success(count($data['passengers']).' passenger(s) added to PNR '.$booking->pnr.'.',
+            new BookingResource($booking->load(['agency', 'linkedBooking'])));
     }
 
     /** The e-tickets of the checked passengers in one ZIP: { passenger_ids: [], lang?, fare?, issued? } */

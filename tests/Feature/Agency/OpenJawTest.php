@@ -97,6 +97,26 @@ class OpenJawTest extends TestCase
         $this->assertSame(['OA202'], array_column(app(ETicketService::class)->data($boldBack->fresh())['legs'], 'flight_number'));
     }
 
+    public function test_an_edit_or_a_new_passenger_goes_to_both_linked_bookings(): void
+    {
+        $this->agency->update(['open_jaw' => true]);
+        $this->actingAsRole('agency-agent');
+        $this->book()->assertCreated();
+        [$first, $second] = Booking::query()->orderBy('id')->get()->all();
+        $bold = Passenger::query()->where('booking_id', $first->id)->where('first_name', 'BOLD')->sole();
+
+        $this->putJson("/api/v1/agency/passengers/{$bold->id}", ['first_name' => 'Boldoo', 'document_number' => 'E7777777'])->assertOk();
+        $back = $bold->linkedPassenger()->first();
+        $this->assertSame(['BOLDOO', 'E7777777'], [$back->first_name, $back->document_number]);
+
+        $this->postJson("/api/v1/agency/bookings/{$first->id}/passengers", ['passengers' => [
+            $this->passengerPayload(['first_name' => 'Tuya', 'last_name' => 'Dorj']),
+        ]])->assertOk();
+        $tuya = Passenger::query()->where('booking_id', $first->id)->where('first_name', 'TUYA')->sole();
+        $this->assertSame($second->id, $tuya->linkedPassenger->booking_id);
+        $this->assertSame(['TA101', 'OA202'], array_column(app(ETicketService::class)->data($tuya->fresh())['legs'], 'flight_number'));
+    }
+
     public function test_open_jaw_is_for_charters_landing_where_the_trip_started(): void
     {
         $this->agency->update(['open_jaw' => true]);

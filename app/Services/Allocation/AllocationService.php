@@ -315,6 +315,25 @@ class AllocationService
      * @return array{seats: int, used: int, remaining: int, is_open_for_names: bool, names_deadline_at: string,
      *               cabins: array<int, array<string, mixed>>, fares: array<int, array<string, mixed>>}
      */
+    /** Infants the flights of the allocation can still take (the fewest of them); null when the aircraft sets no limit */
+    public function infantsLeft(AgencyAllocation $allocation): ?int
+    {
+        $left = Flight::query()->with('aircraft')->whereIn('id', $allocation->flightIds())->get()
+            ->map(function (Flight $flight) {
+                $max = $flight->aircraft?->max_infants;
+                if (! $max) {
+                    return null;
+                }
+                $infants = PassengerSegment::query()->where('flight_id', $flight->id)
+                    ->where('status', '!=', SegmentStatus::Cancelled->value)
+                    ->whereHas('passenger', fn ($q) => $q->whereNotNull('infant_of_passenger_id'))->count();
+
+                return max(0, $max - $infants);
+            })->filter(fn ($n) => $n !== null);
+
+        return $left->isEmpty() ? null : (int) $left->min();
+    }
+
     public function usage(AgencyAllocation $allocation): array
     {
         $allocation->loadMissing(['cabins', 'fares.fare', 'outboundFlight']);
@@ -333,6 +352,8 @@ class AllocationService
             'used' => $used,
             'held' => $held,
             'remaining' => $remaining,
+            // infants on a lap need no seat but the aircraft takes only so many (null: no limit)
+            'infants_left' => $this->infantsLeft($allocation),
             'is_open_for_names' => $allocation->isOpenForNames(),
             'names_deadline_at' => $allocation->namesDeadlineAt()->toIso8601String(),
             'cabins' => $allocation->cabins->map(function ($cabin) use ($allocation) {

@@ -45,6 +45,9 @@ class BookingService
     /** While creating an open-jaw charter trip: nothing is priced or charged (charters are paid by contract) */
     private bool $freeOfCharge = false;
 
+    /** While copying a passenger's change to the same person in the linked open-jaw booking */
+    private bool $mirroring = false;
+
     /** Passenger attributes copied from input as-is (after normalisation). */
     private const PASSENGER_FIELDS = [
         'first_name', 'middle_name', 'last_name', 'gender', 'date_of_birth', 'nationality', 'person_code',
@@ -367,8 +370,129 @@ class BookingService
             $this->logger->logChanges($channel, 'passenger.updated', $passenger, $original,
                 "PNR {$booking->pnr}", $firstFlight, $passenger);
 
+            $this->mirrorToLinked($passenger, $data, $actor, $channel);
+
             return $passenger->refresh()->load(['segments.flight', 'infant.segments']);
         });
+    }
+
+    /**
+     * More passengers in an existing booking (PNR): on the same flights, from the same allocation(s), so the quota
+     * limits them (and the aircraft's infant limit). An on-hold booking keeps them unticketed; an open-jaw booking adds
+     * them to the linked booking too, free.
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    public function addToBooking(Booking $booking, array $rows, User $actor, BookingSource $source): Booking
+    {
+        return DB::transaction(function () use ($booking, $rows, $actor, $source) {
+            $booking = Booking::query()->with(['allocation.cabins', 'allocation.fares.fare'])->lockForUpdate()->findOrFail($booking->id);
+            if (in_array($booking->status, [BookingStatus::Cancelled], true)) {
+                throw BusinessRuleException::make('booking_cancelled', 'This booking is cancelled.');
+            }
+            $flightIds = PassengerSegment::query()->whereHas('passenger', fn ($q) => $q->where('booking_id', $booking->id)->whereNull('infant_of_passenger_id'))
+                ->where('status', '!=', SegmentStatus::Cancelled->value)->distinct()->pluck('flight_id')->all();
+            if ($flightIds === []) {
+                throw BusinessRuleException::make('booking_no_flights', 'This booking has no active flights left.');
+            }
+            $flights = Flight::query()->with(['airline', 'aircraft', 'origin', 'destination'])->whereIn('id', $flightIds)->get()
+                ->sortBy('scheduled_departure_at')->values();
+
+            $allocation = $booking->allocation;
+            $returnAllocation = null;
+            if ($allocation) {
+                $this->assertAllocationUsable($allocation, $actor);
+                $others = array_diff($flightIds, $allocation->flightIds());
+                $returnAllocation = $others ? AgencyAllocation::query()->with(['cabins', 'fares.fare'])
+                    ->where('agency_id', $booking->agency_id)->whereIn('outbound_flight_id', $others)->first() : null;
+            }
+
+            // the new passengers get the cabin and fares of the ones already in the booking
+            $first = Passenger::query()->with('segments')->where('booking_id', $booking->id)->whereNull('infant_of_passenger_id')
+                ->orderBy('id')->first();
+            $out = $first?->segments->firstWhere('flight_id', $flights->first()->id);
+            $back = $returnAllocation ? $first?->segments->firstWhere('flight_id', $returnAllocation->outbound_flight_id) : null;
+            $template = array_filter([
+                'cabin_class' => $out?->cabin_class?->value,
+                'allocation_fare_id' => $out?->agency_allocation_fare_id,
+                'fare_id' => $allocation?->uses_published_fares ? $out?->fare_id : null,
+                'return_allocation_fare_id' => $back?->agency_allocation_fare_id,
+                'return_fare_id' => $returnAllocation?->uses_published_fares ? $back?->fare_id : null,
+            ]);
+
+            $this->deferTickets = $booking->status === BookingStatus::OnHold;
+            $this->freeOfCharge = $this->freeOfCharge || (bool) $booking->linked_booking_id;
+            $added = [];
+            try {
+                foreach ($rows as $row) {
+                    $before = $booking->passengers()->pluck('id')->all();
+                    $this->addPassenger($booking, $flights, array_filter($row, fn ($v) => $v !== null) + $template, $allocation, $returnAllocation, false);
+                    $added[] = $booking->passengers()->whereNotIn('id', $before)->orderBy('id')->pluck('id')->all();
+                }
+            } finally {
+                $this->deferTickets = false;
+                $this->freeOfCharge = false;
+            }
+
+            $this->accounts->syncBooking($booking);
+            $this->logger->log($this->channel($source), 'booking.passengers_added', "PNR {$booking->pnr}, ".count($rows).' passenger(s)', $booking, $flights->first());
+
+            // open jaw: the same people on the other airline's booking too, linked one to one
+            if (! $this->mirroring && $booking->linked_booking_id) {
+                $linked = Booking::query()->find($booking->linked_booking_id);
+                if ($linked && $linked->status !== BookingStatus::Cancelled) {
+                    $before = $linked->passengers()->pluck('id')->all();
+                    $this->mirroring = true;
+                    try {
+                        $this->addToBooking($linked, $rows, $actor, $source);
+                    } finally {
+                        $this->mirroring = false;
+                    }
+                    $theirs = $linked->passengers()->whereNotIn('id', $before)->orderBy('id')->pluck('id')->values();
+                    foreach (array_merge(...$added) as $i => $id) {
+                        if (isset($theirs[$i])) {
+                            Passenger::query()->whereKey($id)->update(['linked_passenger_id' => $theirs[$i]]);
+                            Passenger::query()->whereKey($theirs[$i])->update(['linked_passenger_id' => $id]);
+                        }
+                    }
+                }
+            }
+
+            return $booking->load(['passengers.segments.flight', 'passengers.infant']);
+        });
+    }
+
+    /**
+     * Open jaw: the same person in the other airline's linked booking gets the same name, passport, contact and infant
+     * (each booking keeps its own cabin, fare and SSRs). A leg already cancelled is left alone.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function mirrorToLinked(Passenger $passenger, array $data, User $actor, ActivityChannel $channel): void
+    {
+        if ($this->mirroring || ! $passenger->linked_passenger_id) {
+            return;
+        }
+        $linked = Passenger::query()->whereKey($passenger->linked_passenger_id)
+            ->whereHas('segments', fn ($q) => $q->where('status', '!=', SegmentStatus::Cancelled->value))->first();
+        if (! $linked) {
+            return;
+        }
+
+        $this->mirroring = true;
+        try {
+            $this->updatePassenger($linked, collect($data)->only([...self::PASSENGER_FIELDS, 'infant'])->all(), $actor, $channel);
+        } finally {
+            $this->mirroring = false;
+        }
+
+        // an infant added on both sides is the same baby
+        $mine = $passenger->infant()->first();
+        $theirs = $linked->infant()->first();
+        if ($mine && $theirs && $mine->linked_passenger_id !== $theirs->id) {
+            $mine->update(['linked_passenger_id' => $theirs->id]);
+            $theirs->update(['linked_passenger_id' => $mine->id]);
+        }
     }
 
     /** Cancel a passenger (and their infant) on all flights. Checked-in passengers must be un-checked first. */
