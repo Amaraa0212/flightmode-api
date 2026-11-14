@@ -42,6 +42,9 @@ class BookingService
     /** While creating a booking sent with waitlist: false — a full allocation refuses instead of waitlisting */
     private bool $refuseWaitlist = false;
 
+    /** While creating an open-jaw charter trip: nothing is priced or charged (charters are paid by contract) */
+    private bool $freeOfCharge = false;
+
     /** Passenger attributes copied from input as-is (after normalisation). */
     private const PASSENGER_FIELDS = [
         'first_name', 'middle_name', 'last_name', 'gender', 'date_of_birth', 'nationality', 'person_code',
@@ -66,6 +69,10 @@ class BookingService
      */
     public function create(array $data, User $actor, BookingSource $source, bool $goShow = false): Booking
     {
+        if ($this->isInterline($data)) {
+            return $this->createOpenJaw($data, $actor, $source);
+        }
+
         $this->deferTickets = ! empty($data['on_hold']);
         $this->refuseWaitlist = array_key_exists('waitlist', $data) && ! $data['waitlist'];
         try {
@@ -73,6 +80,88 @@ class BookingService
         } finally {
             $this->deferTickets = false;
             $this->refuseWaitlist = false;
+        }
+    }
+
+    /** A return on an allocation of another airline: an open-jaw trip */
+    private function isInterline(array $data): bool
+    {
+        if (empty($data['allocation_id']) || empty($data['return_allocation_id'])) {
+            return false;
+        }
+        $airlines = AgencyAllocation::query()->whereKey([$data['allocation_id'], $data['return_allocation_id']])->pluck('airline_id');
+
+        return $airlines->unique()->count() > 1;
+    }
+
+    /**
+     * Open jaw (charters): out on one airline's allocation, back on another's. A booking is one airline's, so the trip is
+     * two bookings — linked, and each passenger linked to themselves in the other one. The agency must be allowed open
+     * jaw (system administrator), both flights are charters, the return lands where the outbound took off after it
+     * arrived. Charters are paid by contract: nothing is priced or charged, and the tickets are issued at once (no TL).
+     * Each leg can be cancelled on its own.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function createOpenJaw(array $data, User $actor, BookingSource $source): Booking
+    {
+        if (! empty($data['on_hold']) || ! empty($data['hold_id'])) {
+            throw BusinessRuleException::make('open_jaw_no_hold', 'An open-jaw charter is ticketed at once: it cannot be held.');
+        }
+
+        return DB::transaction(function () use ($data, $actor, $source) {
+            $with = ['agency', 'outboundFlight.origin', 'outboundFlight.destination'];
+            $outbound = AgencyAllocation::query()->with($with)->findOrFail($data['allocation_id']);
+            $return = AgencyAllocation::query()->with($with)->findOrFail($data['return_allocation_id']);
+            $this->assertOpenJaw($outbound, $return);
+
+            $base = collect($data)->except(['return_allocation_id', 'hold_id', 'on_hold'])->all();
+            $this->freeOfCharge = true;
+            try {
+                $first = $this->createBooking(['allocation_id' => $outbound->id] + $base, $actor, $source, false);
+                $second = $this->createBooking(['allocation_id' => $return->id] + $base, $actor, $source, false);
+            } finally {
+                $this->freeOfCharge = false;
+            }
+
+            $first->update(['linked_booking_id' => $second->id]);
+            $second->update(['linked_booking_id' => $first->id]);
+            // the same people, created in the same order (an infant right after its adult)
+            $theirs = $second->passengers()->orderBy('id')->get()->values();
+            foreach ($first->passengers()->orderBy('id')->get()->values() as $i => $passenger) {
+                $other = $theirs[$i];
+                $passenger->update(['linked_passenger_id' => $other->id]);
+                $other->update(['linked_passenger_id' => $passenger->id]);
+            }
+            $this->logger->log($this->channel($source), 'booking.open_jaw', "PNR {$first->pnr} + {$second->pnr}", $first);
+
+            return $first->load(['passengers.segments.flight', 'passengers.infant'])->setRelation('linkedBooking', $second);
+        });
+    }
+
+    private function assertOpenJaw(AgencyAllocation $outbound, AgencyAllocation $return): void
+    {
+        $out = $outbound->outboundFlight;
+        $back = $return->outboundFlight;
+        $fail = fn (string $code, string $message) => throw BusinessRuleException::make($code, $message);
+
+        if ($return->agency_id !== $outbound->agency_id) {
+            $fail('return_allocation_mismatch', 'The return allocation belongs to another agency.');
+        }
+        if (! $outbound->agency?->open_jaw) {
+            $fail('open_jaw_not_allowed', 'This agency may not combine two airlines (open jaw is off).');
+        }
+        if (! $out->isCharter() || ! $back->isCharter()) {
+            $fail('open_jaw_charter_only', 'Open jaw combines charter flights only.');
+        }
+        if ($outbound->return_flight_id || $return->return_flight_id) {
+            $fail('open_jaw_one_way', 'Open jaw combines two one-way allocations.');
+        }
+        if ($back->destination_airport_id !== $out->origin_airport_id) {
+            $fail('open_jaw_route', "The return must land at {$out->origin?->iata_code}, where the outbound departs.");
+        }
+        if ($back->scheduled_departure_at->lte($out->scheduled_arrival_at)) {
+            $fail('open_jaw_time', 'The return must depart after the outbound flight arrives.');
         }
     }
 
@@ -517,7 +606,7 @@ class BookingService
             $segmentFare = $isReturnAllocationFlight ? ($returnFare ?? $directFare) : $directFare;
             // A round-trip price is charged once, on the first coupon it covers.
             $charged = $index === 0 || $isReturnAllocationFlight;
-            $price = $charged ? ($segmentBucket?->priceFor($type) ?? $segmentFare?->priceFor($type)) : null;
+            $price = $charged && ! $this->freeOfCharge ? ($segmentBucket?->priceFor($type) ?? $segmentFare?->priceFor($type)) : null;
 
             $segment = $passenger->segments()->create([
                 'flight_id' => $flight->id,
@@ -529,7 +618,7 @@ class BookingService
                 'ticket_number' => $ticket,
                 'fare_amount' => $price['fare'] ?? 0,
                 'tax_amount' => $price['tax'] ?? 0,
-                'agency_sale_amount' => $charged ? ($row['agency_sale_amount'] ?? null) : null,
+                'agency_sale_amount' => $charged && ! $this->freeOfCharge ? ($row['agency_sale_amount'] ?? null) : null,
                 'currency' => $flight->airline->currency,
                 'status' => $waitlisted ? SegmentStatus::Waitlisted : SegmentStatus::Booked,
                 'is_go_show' => $goShow,
@@ -599,6 +688,9 @@ class BookingService
         }
 
         if (! $bucketId) {
+            if ($this->freeOfCharge) {
+                return null;
+            }
             throw BusinessRuleException::make('fare_required', 'Choose a fare for this allocation.');
         }
 
@@ -656,6 +748,9 @@ class BookingService
      */
     private function assertPublishedFares(?AgencyAllocation $allocation, ?AgencyAllocation $returnAllocation, CabinClass $cabin, ?Fare $fare, ?Fare $returnFare): void
     {
+        if ($this->freeOfCharge) {
+            return;
+        }
         if ($allocation?->uses_published_fares) {
             if (! $fare) {
                 throw BusinessRuleException::make('fare_required', 'Choose a fare for this allocation.');

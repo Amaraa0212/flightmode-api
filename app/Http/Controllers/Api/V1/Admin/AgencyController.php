@@ -52,7 +52,9 @@ class AgencyController extends Controller
             // a system administrator may create it for one airline (owner_airline_id), or shared — then optionally
             // with a contract with every airline there is now (a later airline is linked by hand)
             $owner = $user->isSystemAdmin() ? $request->validated('owner_airline_id') : $user->airline_id;
-            $agency = Agency::create(collect($request->validated())->except(['owner_airline_id', 'all_airlines'])->all() + ['owner_airline_id' => $owner]);
+            $fields = collect($request->validated())->except(['owner_airline_id', 'all_airlines'])
+                ->when(! $user->isSystemAdmin(), fn ($c) => $c->except('open_jaw'));
+            $agency = Agency::create($fields->all() + ['owner_airline_id' => $owner]);
             if ($owner) {
                 $agency->airlines()->attach($owner, ['is_active' => true]);
             } elseif ($user->isSystemAdmin() && $request->boolean('all_airlines')) {
@@ -74,7 +76,8 @@ class AgencyController extends Controller
 
     public function update(AgencyRequest $request, Agency $agency): JsonResponse
     {
-        $data = collect($request->validated())->except(['owner_airline_id', 'all_airlines']);
+        $data = collect($request->validated())->except(['owner_airline_id', 'all_airlines'])
+            ->when(! $request->user()->isSystemAdmin(), fn ($c) => $c->except('open_jaw'));
         // a contracted airline may still switch the Chinggis push of a shared agency; the rest is the owner's
         if (collect($request->validated())->keys()->diff(['chinggis_sync'])->isEmpty()) {
             $this->ensureVisible($request->user(), $agency);

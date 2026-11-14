@@ -16,7 +16,7 @@ class Agency extends Model
 
     protected function casts(): array
     {
-        return ['is_active' => 'boolean', 'api_enabled' => 'boolean', 'chinggis_sync' => 'boolean'];
+        return ['is_active' => 'boolean', 'api_enabled' => 'boolean', 'chinggis_sync' => 'boolean', 'open_jaw' => 'boolean'];
     }
 
     /** Sales channels an agency can be (own channels of an airline are usually not travel agencies) */

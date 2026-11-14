@@ -35,6 +35,7 @@ class AllocationResource extends JsonResource
         return [
             'id' => $this->id,
             'airline_id' => $this->airline_id,
+            'airline' => $this->whenLoaded('airline', fn () => $this->airline ? ['id' => $this->airline->id, 'name' => $this->airline->name] : null),
             'agency' => $this->whenLoaded('agency', fn () => ['id' => $this->agency->id, 'name' => $this->agency->name]),
             'agency_id' => $this->agency_id,
             'outbound_flight' => new FlightResource($this->whenLoaded('outboundFlight')),

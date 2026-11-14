@@ -15,6 +15,8 @@ class PassengerResource extends JsonResource
             'id' => $this->id,
             'booking_id' => $this->booking_id,
             'pnr' => $this->whenLoaded('booking', fn () => $this->booking->pnr),
+            // open jaw: the PNR of the same trip on the other airline
+            'linked_pnr' => $this->whenLoaded('booking', fn () => $this->booking->relationLoaded('linkedBooking') ? $this->booking->linkedBooking?->pnr : null),
             // on_hold: tickets still to be issued before the ticket time limit
             'booking_status' => $this->whenLoaded('booking', fn () => $this->booking->status->value),
             'ticketing_deadline_at' => $this->whenLoaded('booking', fn () => $this->booking->ticketing_deadline_at?->toIso8601String()),

@@ -60,4 +60,10 @@ class Booking extends Model
     {
         return $this->hasManyThrough(PassengerSegment::class, Passenger::class);
     }
+
+    /** Open jaw: the same trip on the other airline */
+    public function linkedBooking(): BelongsTo
+    {
+        return $this->belongsTo(Booking::class, 'linked_booking_id');
+    }
 }

@@ -212,7 +212,7 @@ class AllocationController extends Controller
     public static function allocationPassengers(AgencyAllocation $allocation)
     {
         $passengers = Passenger::query()
-            ->with(['booking.creator:id,name', 'infant.segments', 'segments.ssrCodes', 'segments.flight'])
+            ->with(['booking.creator:id,name', 'booking.linkedBooking:id,pnr', 'infant.segments', 'segments.ssrCodes', 'segments.flight'])
             ->whereNull('infant_of_passenger_id')
             ->whereHas('booking', fn ($q) => $q->where('agency_allocation_id', $allocation->id))
             ->orderBy('last_name')->orderBy('first_name')

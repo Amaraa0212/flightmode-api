@@ -60,11 +60,15 @@ class ETicketService
             throw BusinessRuleException::make('eticket_infant', 'The e-ticket is issued for the adult; the infant is included in it.');
         }
 
-        $passenger->loadMissing(['booking.airline', 'booking.agency', 'infant.segments', 'segments.flight.origin',
-            'segments.flight.destination', 'segments.flight.aircraft', 'segments.ssrCodes', 'segments.prepaidBaggage',
-            'segments.fare.fareClass']);
+        $coupons = ['segments.flight.origin', 'segments.flight.destination', 'segments.flight.aircraft', 'segments.flight.airline',
+            'segments.ssrCodes', 'segments.prepaidBaggage', 'segments.fare.fareClass'];
+        $passenger->loadMissing(['booking.airline', 'booking.agency', 'infant.segments', 'infant.linkedPassenger.segments',
+            'linkedPassenger.booking', ...$coupons, ...array_map(fn ($r) => "linkedPassenger.{$r}", $coupons)]);
 
-        $segments = $passenger->segments->where('status', '!=', SegmentStatus::Cancelled)->sortBy('segment_no')->values();
+        // open jaw: the legs of the other airline's linked booking belong to the same trip
+        $active = fn (?Passenger $p) => $p ? $p->segments->where('status', '!=', SegmentStatus::Cancelled) : collect();
+        $segments = $active($passenger)->merge($active($passenger->linkedPassenger))
+            ->sortBy(fn (PassengerSegment $s) => $s->flight->scheduled_departure_at)->values();
         if ($segments->isEmpty()) {
             throw BusinessRuleException::make('no_segments', 'This passenger has no active flights.');
         }
@@ -73,7 +77,7 @@ class ETicketService
         $booking = $passenger->booking;
         $airline = $booking->airline;
         $infant = $passenger->infant;
-        $infantSegments = $infant ? $infant->segments->where('status', '!=', SegmentStatus::Cancelled)->keyBy('flight_id') : collect();
+        $infantSegments = $active($infant)->merge($active($infant?->linkedPassenger))->keyBy('flight_id');
         $freeBaggage = (int) config('flightmode.documents.default_free_baggage_kg');
         $cabinBaggage = (int) config('flightmode.documents.eticket_cabin_baggage_kg');
         $checkinHours = (int) config('flightmode.documents.eticket_checkin_opens_hours');
@@ -101,7 +105,7 @@ class ETicketService
                 'next_day' => ($days = (int) $dep->copy()->startOfDay()->diffInDays($arr->copy()->startOfDay(), false)) > 0 ? "+{$days}" : '',
                 'duration' => sprintf('%02dh %02dm', intdiv($minutes, 60), $minutes % 60),
                 'cabin' => $s->cabin_class->label().($s->fare_class ? ' ('.$s->fare_class.')' : ''),
-                'operated' => $t('operated', ['airline' => $airline->name]),
+                'operated' => $t('operated', ['airline' => ($f->airline ?? $airline)->name]),
                 'seats' => implode(' · ', array_filter([$s->seat_number ?? '—', $infantSegments->has($f->id) ? 'INF' : null])),
                 'aircraft' => $f->aircraft?->type,
                 'baggage_kg' => (int) ($f->excess_baggage_max_kg ?? $freeBaggage),
@@ -157,7 +161,7 @@ class ETicketService
             'agency' => $booking->agency?->name,
             'issuer' => $this->issuer($booking, $header),
             'conditions_html' => $this->conditions($booking, $header),
-            'pnr' => $booking->pnr,
+            'pnr' => collect([$booking->pnr, $passenger->linkedPassenger?->booking?->pnr])->filter()->implode(' / '),
             'ticket_numbers' => $tickets->implode(' · ') ?: '—',
             'status' => match (true) {
                 $booking->status === BookingStatus::OnHold || $tickets->isEmpty() => $t('on_hold'),
@@ -246,7 +250,7 @@ class ETicketService
             ->setOption('isRemoteEnabled', false);
 
         return [
-            'filename' => 'eticket-'.$data['pnr'].'-'.$passenger->id.'-'.$lang.'.pdf',
+            'filename' => 'eticket-'.str_replace(' / ', '-', $data['pnr']).'-'.$passenger->id.'-'.$lang.'.pdf',
             'content' => $pdf->output(),
         ];
     }

@@ -56,4 +56,10 @@ class Passenger extends Model
     {
         return $this->type === PassengerType::Infant;
     }
+
+    /** Open jaw: the same trip on the other airline */
+    public function linkedPassenger(): BelongsTo
+    {
+        return $this->belongsTo(Passenger::class, 'linked_passenger_id');
+    }
 }

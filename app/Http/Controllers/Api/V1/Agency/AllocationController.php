@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Agency;
 
+use App\Enums\FlightServiceType;
 use App\Http\Controllers\Api\V1\Admin\AllocationController as AdminAllocationController;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AllocationResource;
@@ -9,8 +10,8 @@ use App\Http\Resources\PassengerResource;
 use App\Models\AgencyAllocation;
 use App\Models\AirlineSsr;
 use App\Services\Access\AccessScope;
-use App\Services\Allocation\AllocationService;
 use App\Services\Agency\AgencySeatService;
+use App\Services\Allocation\AllocationService;
 use App\Services\Allocation\ScheduleChanges;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -127,21 +128,30 @@ class AllocationController extends Controller
         return response()->json(['data' => $ssrs]);
     }
 
-    /** Other allocations of the agency on the reverse route after this flight (to sell a return). */
+    /**
+     * Allocations of the agency to sell a return on, after this flight arrives: the reverse route on the same airline;
+     * an agency allowed open jaw on a charter also gets every charter landing where this one departs, on any airline
+     * (that trip is two linked bookings, priced at nothing).
+     */
     public function returnOptions(Request $request, AgencyAllocation $allocation): AnonymousResourceCollection
     {
         $this->access->ensureAllocation($request->user(), $allocation);
+        $allocation->loadMissing(['agency', 'outboundFlight']);
         $outbound = $allocation->outboundFlight;
+        $openJaw = (bool) $allocation->agency?->open_jaw && $outbound->isCharter() && ! $allocation->return_flight_id;
 
-        $options = AgencyAllocation::query()->with(['outboundFlight.origin', 'outboundFlight.destination', 'fares.fare', 'cabins'])
+        $options = AgencyAllocation::query()->with(['airline', 'outboundFlight.origin', 'outboundFlight.destination', 'fares.fare', 'cabins'])
             ->where('agency_id', $allocation->agency_id)
             ->whereKeyNot($allocation->id)
             ->whereNull('return_flight_id')
             ->whereHas('outboundFlight', fn ($q) => $q
-                ->where('origin_airport_id', $outbound->destination_airport_id)
                 ->where('destination_airport_id', $outbound->origin_airport_id)
-                ->where('scheduled_departure_at', '>', $outbound->scheduled_arrival_at))
-            ->get();
+                ->where('scheduled_departure_at', '>', $outbound->scheduled_arrival_at)
+                ->when($openJaw, fn ($c) => $c->where('service_type', FlightServiceType::Charter->value))
+                ->when(! $openJaw, fn ($c) => $c->where('origin_airport_id', $outbound->destination_airport_id)))
+            ->when(! $openJaw, fn ($q) => $q->where('airline_id', $allocation->airline_id))
+            ->get()
+            ->sortBy(fn (AgencyAllocation $a) => $a->outboundFlight->scheduled_departure_at)->values();
 
         return AllocationResource::collection($options);
     }

@@ -23,6 +23,7 @@ class AgencyResource extends JsonResource
             'registration_no' => $this->registration_no,
             'api_enabled' => $this->api_enabled,
             'chinggis_sync' => (bool) $this->chinggis_sync,
+            'open_jaw' => (bool) $this->open_jaw,
             'is_active' => $this->is_active,
             'contract_active' => $this->whenPivotLoaded('agency_airline', fn () => (bool) $this->pivot->is_active),
             'airlines' => $this->whenLoaded('airlines', fn () => $this->airlines->map(fn ($a) => [

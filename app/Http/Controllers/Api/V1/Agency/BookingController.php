@@ -181,9 +181,18 @@ class BookingController extends Controller
         $request->validate([
             'file' => ['required', 'file', 'mimes:xlsx,xls,csv', 'max:5120'],
             'replace_existing' => ['boolean'],
+            // RT: every passenger also on this return allocation (another airline's on open jaw)
+            'return_allocation_id' => ['nullable', 'integer'],
         ]);
+        $return = $request->filled('return_allocation_id')
+            ? AgencyAllocation::query()->findOrFail($request->integer('return_allocation_id'))
+            : null;
+        if ($return) {
+            $this->access->ensureAllocation($request->user(), $return);
+        }
 
-        $result = $importer->import($request->file('file'), $allocation->load('outboundFlight'), $request->user(), $request->boolean('replace_existing'));
+        $result = $importer->import($request->file('file'), $allocation->load('outboundFlight'), $request->user(),
+            $request->boolean('replace_existing'), $return);
 
         return $this->created("{$result['created']} passenger(s) imported.", $result);
     }
