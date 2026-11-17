@@ -50,6 +50,12 @@ class PassengerSegment extends Model
         return $this->belongsTo(Fare::class);
     }
 
+    /** The quota this coupon was sold from (a round trip on two quotas: each its own) */
+    public function allocation(): BelongsTo
+    {
+        return $this->belongsTo(AgencyAllocation::class, 'agency_allocation_id');
+    }
+
     public function allocationFare(): BelongsTo
     {
         return $this->belongsTo(AgencyAllocationFare::class, 'agency_allocation_fare_id');

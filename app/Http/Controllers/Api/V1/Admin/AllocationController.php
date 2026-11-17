@@ -212,9 +212,12 @@ class AllocationController extends Controller
     public static function allocationPassengers(AgencyAllocation $allocation)
     {
         $passengers = Passenger::query()
-            ->with(['booking.creator:id,name', 'booking.linkedBooking:id,pnr', 'infant.segments', 'segments.ssrCodes', 'segments.flight'])
+            ->with(['booking.creator:id,name', 'booking.linkedBooking:id,pnr', 'infant.segments', 'segments.ssrCodes', 'segments.flight',
+                // this quota's coupon first: the list shows its flight's ticket, seat and status
+                'segments' => fn ($q) => $q->reorder()->orderByRaw('agency_allocation_id = ? desc', [$allocation->id])->orderBy('segment_no')])
             ->whereNull('infant_of_passenger_id')
-            ->whereHas('booking', fn ($q) => $q->where('agency_allocation_id', $allocation->id))
+            // every passenger with a coupon of this quota (a round trip on two quotas is on both lists)
+            ->whereHas('segments', fn ($q) => $q->where('agency_allocation_id', $allocation->id))
             ->orderBy('last_name')->orderBy('first_name')
             ->get();
 

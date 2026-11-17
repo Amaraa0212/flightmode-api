@@ -618,7 +618,7 @@ class BookingService
                 throw BusinessRuleException::make('already_on_flight', 'The passenger is already on this flight.');
             }
 
-            if (! $segment->agency_allocation_fare_id && ! $segment->passenger->booking?->agency_allocation_id
+            if (! $segment->agency_allocation_fare_id && ! $segment->agency_allocation_id && ! $segment->passenger->booking?->agency_allocation_id
                 && $segment->status !== SegmentStatus::Waitlisted) {
                 $this->inventory->assertCanSell($newFlight, $segment->cabin_class, $segment->fare_class);
             }
@@ -700,6 +700,7 @@ class BookingService
 
         $passenger = $booking->passengers()->create($attributes + ['type' => $type]);
         $this->createSegments($passenger, $flights, $cabin, $type, $bucket, $returnBucket, $returnAllocation, $directFare, $row, $waitlisted, $goShow, $returnFare);
+        $this->assignQuotas($passenger, $allocation, $returnAllocation);
 
         if ($infantData) {
             $infant = $booking->passengers()->create($infantData + [
@@ -707,6 +708,7 @@ class BookingService
                 'infant_of_passenger_id' => $passenger->id,
             ]);
             $this->createSegments($infant, $flights, $cabin, PassengerType::Infant, $bucket, $returnBucket, $returnAllocation, $directFare, [], $waitlisted, $goShow, $returnFare);
+            $this->assignQuotas($infant, $allocation, $returnAllocation);
         }
 
         return $waitlisted;
@@ -1012,6 +1014,29 @@ class BookingService
         $bucket = $first->allocationFare;
         $this->createSegments($infant, $flights, $first->cabin_class, PassengerType::Infant, $bucket, null, null,
             $allocation && ! $allocation->uses_published_fares ? null : $first->fare, [], $first->status === SegmentStatus::Waitlisted, $first->is_go_show);
+        // the infant's coupons come from the same quotas as its adult's
+        foreach ($segments as $adultSegment) {
+            PassengerSegment::query()->where('passenger_id', $infant->id)->where('flight_id', $adultSegment->flight_id)
+                ->update(['agency_allocation_id' => $adultSegment->agency_allocation_id]);
+        }
+    }
+
+    /**
+     * The quota each coupon was sold from: the return allocation's flight from it, the booking allocation's flights
+     * from that one (a round trip on two quotas counts on both).
+     */
+    private function assignQuotas(Passenger $passenger, ?AgencyAllocation $allocation, ?AgencyAllocation $returnAllocation): void
+    {
+        foreach ($passenger->segments()->get(['id', 'flight_id']) as $segment) {
+            $quota = match (true) {
+                $returnAllocation && $segment->flight_id === $returnAllocation->outbound_flight_id => $returnAllocation->id,
+                $allocation && in_array($segment->flight_id, $allocation->flightIds(), true) => $allocation->id,
+                default => null,
+            };
+            if ($quota) {
+                PassengerSegment::query()->whereKey($segment->id)->update(['agency_allocation_id' => $quota]);
+            }
+        }
     }
 
     /** @param array<string> $codes */

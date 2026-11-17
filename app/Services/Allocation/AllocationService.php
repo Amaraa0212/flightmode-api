@@ -289,9 +289,10 @@ class AllocationService
 
     public function usedSeats(AgencyAllocation $allocation, ?CabinClass $cabin = null, ?int $exceptPassengerId = null): int
     {
+        // coupons sold from this quota (a round trip's return coupon counts on its return quota)
         return $this->activeAdultSegments()
             ->where('flight_id', $allocation->outbound_flight_id)
-            ->whereHas('passenger.booking', fn ($q) => $q->where('agency_allocation_id', $allocation->id))
+            ->where('agency_allocation_id', $allocation->id)
             ->when($cabin, fn ($q) => $q->where('cabin_class', $cabin->value))
             ->when($exceptPassengerId, fn ($q) => $q->where('passenger_id', '!=', $exceptPassengerId))
             ->count();
@@ -495,7 +496,7 @@ class AllocationService
     {
         return $this->activeAdultSegments()
             ->where('flight_id', $flight->id)
-            ->whereHas('passenger.booking', fn ($q) => $q->whereNull('agency_allocation_id')
+            ->where(fn ($q) => $q->whereNull('agency_allocation_id')
                 ->orWhereHas('allocation', fn ($a) => $a->where('mode', AgencyAllocation::POOL)));
     }
 

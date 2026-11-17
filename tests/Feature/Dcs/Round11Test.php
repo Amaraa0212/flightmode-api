@@ -108,4 +108,31 @@ class Round11Test extends TestCase
         $this->postJson("/api/v1/dcs/flights/{$flight->id}/groups", ['segment_ids' => [$solo->id, $family[0]->id]])
             ->assertStatus(422)->assertJsonPath('code', 'group_member_has_baggage');
     }
+
+    public function test_a_round_trip_on_two_quotas_counts_and_lists_on_both(): void
+    {
+        $out = $this->makeFlight(null, ['service_type' => 'charter']);
+        $back = $this->makeFlight(now()->addDays(10)->setTime(9, 0), ['flight_number' => 'TA102', 'service_type' => 'charter',
+            'origin_airport_id' => $this->pqc->id, 'destination_airport_id' => $this->ubn->id]);
+        $outQuota = $this->makeAllocation($out, 5, ['Y' => 5]);
+        $backQuota = $this->makeAllocation($back, 5, ['Y' => 5]);
+        $this->actingAsRole('agency-agent');
+
+        $this->postJson('/api/v1/agency/bookings', ['allocation_id' => $outQuota->id, 'return_allocation_id' => $backQuota->id,
+            'passengers' => [$this->passengerPayload(['first_name' => 'Bold'])]])->assertCreated();
+
+        $usage = fn ($quota) => $this->getJson("/api/v1/agency/allocations/{$quota->id}")->assertOk()->json('data.usage');
+        $this->assertSame([1, 4], [$usage($outQuota)['used'], $usage($outQuota)['remaining']]);
+        $this->assertSame([1, 4], [$usage($backQuota)['used'], $usage($backQuota)['remaining']]);   // the return quota counts it
+
+        // the return quota lists the passenger with the return coupon
+        $list = $this->getJson("/api/v1/agency/allocations/{$backQuota->id}/passengers")->assertOk()->json('data');
+        $this->assertCount(1, $list);
+        $this->assertSame($back->id, $list[0]['segments'][0]['flight_id']);
+        $this->assertNotNull($list[0]['segments'][0]['ticket_number']);
+
+        // cancelling frees both
+        $this->deleteJson("/api/v1/agency/passengers/{$list[0]['id']}")->assertOk();
+        $this->assertSame([0, 0], [$usage($outQuota)['used'], $usage($backQuota)['used']]);
+    }
 }

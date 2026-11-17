@@ -55,7 +55,7 @@ class FlightStatistics
                 $segments = PassengerSegment::query()->with('passenger')
                     ->where('flight_id', $flight->id)
                     ->whereNotIn('status', [SegmentStatus::Cancelled, SegmentStatus::Waitlisted])
-                    ->whereHas('passenger.booking', fn ($q) => $q->where('agency_allocation_id', $allocation->id))
+                    ->where('agency_allocation_id', $allocation->id)
                     ->get();
 
                 return [
