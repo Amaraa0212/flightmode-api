@@ -29,7 +29,7 @@ class FlightOperationsService
     /** Fields a flight series writes on its flights. */
     private const SERIES_FIELDS = [
         'aircraft_id', 'flight_number', 'service_type', 'origin_airport_id', 'destination_airport_id', 'scheduled_departure_at',
-        'scheduled_arrival_at', 'gate', 'no_baggage_rule', 'excess_baggage_max_kg', 'excess_baggage_price_per_kg',
+        'scheduled_arrival_at', 'gate', 'no_baggage_rule',
     ];
 
     public function __construct(

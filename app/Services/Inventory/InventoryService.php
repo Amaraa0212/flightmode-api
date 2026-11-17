@@ -324,7 +324,7 @@ class InventoryService
         $rows = PassengerSegment::query()
             ->join('passengers', 'passengers.id', '=', 'passenger_segments.passenger_id')
             ->join('bookings', 'bookings.id', '=', 'passengers.booking_id')
-            ->leftJoin('agency_allocations', 'agency_allocations.id', '=', 'bookings.agency_allocation_id')
+            ->leftJoin('agency_allocations', 'agency_allocations.id', '=', 'passenger_segments.agency_allocation_id')
             ->whereNull('passengers.deleted_at')
             ->where('passenger_segments.flight_id', $flight->id)
             ->whereNotIn('passenger_segments.status', [SegmentStatus::Cancelled->value, SegmentStatus::Waitlisted->value])

@@ -179,7 +179,9 @@ class CharterAndProductsTest extends TestCase
         $this->book($flight, ['document_number' => 'E1000003', 'first_name' => 'BOLD']);
 
         $this->actingAsRole('airline-admin');
-        $row = collect($this->getJson('/api/v1/admin/flight-board?date='.$flight->scheduled_departure_at->toDateString())->assertOk()->json('data'))
+        // the board's day is the origin's local day
+        $day = $flight->scheduled_departure_at->copy()->timezone('Asia/Ulaanbaatar')->toDateString();
+        $row = collect($this->getJson('/api/v1/admin/flight-board?date='.$day)->assertOk()->json('data'))
             ->firstWhere('id', $flight->id);
 
         $this->assertSame([

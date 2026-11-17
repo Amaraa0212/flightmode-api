@@ -55,8 +55,9 @@ class BaggageController extends Controller
             'no_baggage_rule' => $segment->flight->hasNoBaggageRule(),
             'rules' => BaggageRuleResource::collection($rules)->resolve(),
             'prepaid_pieces' => (int) $segment->prepaidBaggage()->sum('pieces'),
-            'excess_price_per_kg' => $segment->flight->excess_baggage_price_per_kg,
-            'excess_max_kg' => $segment->flight->excess_baggage_max_kg,
+            // from the flight's EBAG rules: an extra piece (PC rules) and an excess kg
+            'excess_price_per_piece' => $this->pricing->excessRates($segment->flight, $segment)[0],
+            'excess_price_per_kg' => $this->pricing->excessRates($segment->flight, $segment)[1],
             'accepted' => CheckedBaggageResource::collection($segment->checkedBaggage()->with('tags', 'rule')->get())->resolve(),
         ]]);
     }
@@ -91,7 +92,7 @@ class BaggageController extends Controller
 
         if ($noRule) {
             return response()->json(['data' => ['free_allowance_kg' => (float) $data['weight_kg'], 'excess_kg' => 0, 'excess_price' => 0,
-                'price' => 0, 'excess_price_per_kg' => 0, 'remaining_allowance_kg' => null, 'currency' => $segment->flight->airline->currency]]);
+                'price' => 0, 'excess_pieces' => 0, 'excess_price_per_kg' => 0, 'excess_price_per_piece' => 0, 'remaining_allowance_kg' => null, 'currency' => $segment->flight->airline->currency]]);
         }
 
         $rule = BaggageRule::query()->findOrFail($data['baggage_rule_id']);

@@ -124,8 +124,6 @@ class FlightController extends Controller
             'destination_airport_id' => ['required', 'integer', 'exists:airports,id', 'different:origin_airport_id'],
             'service_type' => ['sometimes', Rule::enum(FlightServiceType::class)],
             'no_baggage_rule' => ['boolean'],
-            'excess_baggage_max_kg' => ['nullable', 'numeric', 'min:0'],
-            'excess_baggage_price_per_kg' => ['nullable', 'numeric', 'min:0'],
             'departure_time' => ['required', 'date_format:H:i'],
             'arrival_time' => ['required_without:block_minutes', 'date_format:H:i'],
             'block_minutes' => ['required_without:arrival_time', 'integer', 'min:10', 'max:1440'],
@@ -158,8 +156,6 @@ class FlightController extends Controller
                     'destination_airport_id' => $data['destination_airport_id'],
                     'service_type' => $data['service_type'] ?? FlightServiceType::Scheduled->value,
                     'no_baggage_rule' => $data['no_baggage_rule'] ?? false,
-                    'excess_baggage_max_kg' => $data['excess_baggage_max_kg'] ?? null,
-                    'excess_baggage_price_per_kg' => $data['excess_baggage_price_per_kg'] ?? null,
                     'scheduled_departure_at' => $departure,
                     'scheduled_arrival_at' => isset($data['arrival_time'])
                         ? $this->arrivalAfter($departure, $date, $data['arrival_time'], $arrivalTimezone)

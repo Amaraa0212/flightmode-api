@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -83,6 +84,15 @@ class UserController extends Controller
         }
 
         $user->tokens()->delete();
+        // someone who booked or ticketed stays on record (who issued it): signed out and switched off instead
+        $worked = DB::table('bookings')->where('created_by', $user->id)->exists()
+            || DB::table('activity_logs')->where('user_id', $user->id)->where('event', 'booking.ticketed')->exists();
+        if ($worked) {
+            $user->update(['is_active' => false]);
+
+            return $this->success('The user has issued tickets, so they were disabled (cannot sign in) instead of deleted.',
+                new UserResource($user->load(['role', 'airline', 'agency', 'airport'])));
+        }
         $user->delete();
 
         return $this->deleted('User deleted.');

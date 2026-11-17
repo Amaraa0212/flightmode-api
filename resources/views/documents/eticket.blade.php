@@ -168,7 +168,8 @@
                                 <td>
                                     <b>{{ $traveller['name'] }}</b><br>
                                     <span class="type">{{ $traveller['type'] }}</span>
-                                    <span class="muted"> · {{ $loop->first ? $t('bag', ['kg' => $legs[0]['baggage_kg']]) : $t('infant_bag') }}</span>
+                                    {{-- the allowance of each flight: "15 kg / 20 kg" when they differ --}}
+                                    <span class="muted"> · {{ $loop->first ? $t('bag', ['kg' => collect($legs)->pluck('baggage_short')->unique()->implode(' / ')]) : $t('infant_bag') }}</span>
                                 </td>
                             </tr>
                         @endforeach
@@ -183,7 +184,13 @@
                 </div>
                 <div class="block">
                     <h3>{{ $t('baggage_title') }}</h3>
-                    <div><b>{{ $t('baggage_bold', ['kg' => $legs[0]['baggage_kg']]) }}</b></div>
+                    @if (collect($legs)->pluck('baggage_text')->unique()->count() === 1)
+                        <div><b>{{ $legs[0]['baggage_text'] }}</b></div>
+                    @else
+                        @foreach ($legs as $leg)
+                            <div><span class="muted">{{ $leg['short'] }} {{ $leg['flight_number'] }}:</span> <b>{{ $leg['baggage_text'] }}</b></div>
+                        @endforeach
+                    @endif
                     <div class="muted">{{ $t('baggage_text', ['kg' => $cabin_baggage_kg]) }}</div>
                     @if ($legs[0]['prepaid_baggage_pieces'])
                         <div class="muted">{{ $t('prepaid', ['pieces' => $legs[0]['prepaid_baggage_pieces']]) }}</div>

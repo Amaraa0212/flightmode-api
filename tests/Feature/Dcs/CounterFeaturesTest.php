@@ -29,13 +29,15 @@ class CounterFeaturesTest extends TestCase
     {
         parent::setUp();
         $this->buildWorld();
-        $this->flight = $this->makeFlight(now()->addHours(3), [
-            'excess_baggage_price_per_kg' => 18000,
-            'excess_baggage_max_kg' => 10,
-        ]);
+        $this->flight = $this->makeFlight(now()->addHours(3));
         $this->rule = BaggageRule::create(['airline_id' => $this->airline->id, 'name' => '1PC 23KG', 'type' => 'piece',
             'pieces' => 1, 'weight_kg' => 23, 'max_quantity' => 2]);
-        $this->flight->baggageRules()->attach($this->rule->id);
+        // excess prices come from the flight's EBAG rules: 50 000 an extra piece, 18 000 a kg
+        $piece = BaggageRule::create(['airline_id' => $this->airline->id, 'name' => 'EBAG piece', 'type' => 'piece', 'pieces' => 1,
+            'weight_kg' => 0, 'price' => 50000, 'ssr_code' => 'EBAG']);
+        $kg = BaggageRule::create(['airline_id' => $this->airline->id, 'name' => 'EBAG kg', 'type' => 'weight',
+            'weight_kg' => 1, 'price' => 18000, 'ssr_code' => 'EBAG']);
+        $this->flight->baggageRules()->attach([$this->rule->id, $piece->id, $kg->id]);
     }
 
     private function book(array $pax = []): PassengerSegment
@@ -108,10 +110,11 @@ class CounterFeaturesTest extends TestCase
             ->assertJsonPath('data.excess_price', '54000.00')
             ->assertJsonPath('data.payment_reference', 'POS-778812');
 
-        // cap: 3 kg already excess, 10 kg max per passenger
-        $this->postJson("/api/v1/dcs/segments/{$segment->id}/baggage", [
+        // a second piece on 1PC: an excess piece (50 000) plus its 9 kg over 23 (9 × 18 000); no kg limit
+        $this->postJson("/api/v1/dcs/segments/{$segment->id}/baggage/quote", [
             'baggage_rule_id' => $this->rule->id, 'pieces' => 1, 'weight_kg' => 32,
-        ])->assertStatus(422)->assertJsonPath('code', 'excess_limit_exceeded');
+        ])->assertOk()->assertJsonPath('data.excess_pieces', 1)->assertJsonPath('data.excess_kg', 9)
+            ->assertJsonPath('data.excess_price', 212000);
     }
 
     public function test_crew_bags_keep_the_crew_name(): void
@@ -148,16 +151,16 @@ class CounterFeaturesTest extends TestCase
             ->assertJsonPath('data.free_allowance_kg', 69)->assertJsonPath('data.excess_kg', 0);
         $this->postJson("/api/v1/dcs/segments/{$lead->id}/baggage", $bag)->assertCreated();
 
-        // the group's pieces are used up — on any member
+        // the group's free pieces are used up — on any member a piece more is an excess piece
         $one = ['baggage_rule_id' => $this->rule->id, 'pieces' => 1, 'weight_kg' => 10];
-        $this->postJson("/api/v1/dcs/segments/{$lead->id}/baggage/quote", $one)
-            ->assertStatus(422)->assertJsonPath('code', 'baggage_limit_exceeded');
-        $this->postJson("/api/v1/dcs/segments/{$lead->id}/baggage", $one)->assertStatus(422);
+        $this->postJson("/api/v1/dcs/segments/{$lead->id}/baggage/quote", $one)->assertOk()
+            ->assertJsonPath('data.excess_pieces', 1)->assertJsonPath('data.excess_price', 50000);
+        $this->postJson("/api/v1/dcs/segments/{$lead->id}/baggage", $one)->assertStatus(422)->assertJsonPath('code', 'excess_payment_required');
 
-        // a passenger outside the group keeps their own single piece
-        $this->postJson("/api/v1/dcs/segments/{$solo->id}/baggage", ['baggage_rule_id' => $this->rule->id, 'pieces' => 2, 'weight_kg' => 40])
-            ->assertStatus(422)->assertJsonPath('code', 'baggage_limit_exceeded');
-        $this->postJson("/api/v1/dcs/segments/{$solo->id}/baggage", $one)->assertCreated();
+        // a passenger outside the group has their own single free piece: the second one is excess
+        $this->postJson("/api/v1/dcs/segments/{$solo->id}/baggage/quote", ['baggage_rule_id' => $this->rule->id, 'pieces' => 2, 'weight_kg' => 40])
+            ->assertOk()->assertJsonPath('data.excess_pieces', 1)->assertJsonPath('data.excess_kg', 0);
+        $this->postJson("/api/v1/dcs/segments/{$solo->id}/baggage", $one)->assertCreated()->assertJsonPath('data.excess_pieces', 0);
     }
 
     public function test_qz_tray_requests_are_signed_by_the_server(): void
@@ -302,9 +305,10 @@ class CounterFeaturesTest extends TestCase
             ->assertOk()->assertJsonPath('data.free_allowance_kg', 1)->assertJsonPath('data.excess_kg', 4)
             ->assertJsonPath('data.remaining_allowance_kg', 0);
 
-        // and the piece cap still applies
+        // a KG rule counts kg, not pieces: more bags are fine, their kg is excess
         $this->postJson("/api/v1/dcs/segments/{$segment->id}/baggage/quote", ['baggage_rule_id' => $this->rule->id, 'pieces' => 2, 'weight_kg' => 5])
-            ->assertStatus(422)->assertJsonPath('code', 'baggage_limit_exceeded');
+            ->assertOk()->assertJsonPath('data.excess_pieces', 0)->assertJsonPath('data.excess_kg', 4)
+            ->assertJsonPath('data.excess_price', 72000);
     }
 
     public function test_a_passenger_cannot_leave_a_group_that_has_baggage(): void

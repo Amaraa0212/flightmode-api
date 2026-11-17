@@ -176,12 +176,26 @@ class Flight extends Model
         ]);
     }
 
+    /**
+     * Flights that may depart on this local day somewhere: a UTC window wide enough for every time zone. The day is the
+     * origin airport's — keep only those with departsOnLocalDate() once loaded (with their origin).
+     */
     public function scopeDepartingOn(Builder $query, string $date): void
     {
-        $query->where(function (Builder $q) use ($date) {
-            $q->whereDate('estimated_departure_at', $date)
-                ->orWhere(fn (Builder $x) => $x->whereNull('estimated_departure_at')->whereDate('scheduled_departure_at', $date));
+        $from = Carbon::parse($date, 'UTC')->subDay()->startOfDay();
+        $to = Carbon::parse($date, 'UTC')->addDay()->endOfDay();
+        $query->where(function (Builder $q) use ($from, $to) {
+            $q->whereBetween('estimated_departure_at', [$from, $to])
+                ->orWhere(fn (Builder $x) => $x->whereNull('estimated_departure_at')->whereBetween('scheduled_departure_at', [$from, $to]));
         });
+    }
+
+    /** Departs on this day at its origin airport's clock (a 01:20 UBN flight is on its local day, not the UTC one) */
+    public function departsOnLocalDate(string $date): bool
+    {
+        $timezone = $this->origin?->timezone ?: config('flightmode.timezone');
+
+        return $this->departureAt()->copy()->timezone($timezone)->toDateString() === $date;
     }
 
     public function scopeUpcoming(Builder $query, int $graceHours = 24): void

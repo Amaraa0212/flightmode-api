@@ -53,9 +53,8 @@ class BaggageRule extends Model
     public function pieceLimit(int $prepaidPieces = 0): ?int
     {
         return match (true) {
-            $this->isSsr(self::SSR_FREE), $this->isSsr(self::SSR_EXCESS) => null,
+            // prepaid pieces only; a PC rule's extra piece is charged as excess, a KG rule counts kg, not pieces
             $this->isSsr(self::SSR_PREPAID) => $prepaidPieces,
-            in_array($this->type, [BaggageRuleType::Piece, BaggageRuleType::Combined], true) => $this->max_quantity,
             default => null,
         };
     }

@@ -67,7 +67,7 @@ class BaggageService
 
             if ($flight->hasNoBaggageRule()) {
                 $rule = null;
-                $quote = ['free_allowance_kg' => (float) $data['weight_kg'], 'price' => 0.0, 'excess_price' => 0.0];
+                $quote = ['free_allowance_kg' => (float) $data['weight_kg'], 'excess_pieces' => 0, 'price' => 0.0, 'excess_price' => 0.0];
                 $settlement = [];
             } else {
                 $rule = BaggageRule::query()->where('airline_id', $flight->airline_id)->findOrFail($data['baggage_rule_id'] ?? 0);
@@ -85,6 +85,7 @@ class BaggageService
                 'pieces' => $data['pieces'],
                 'weight_kg' => $data['weight_kg'],
                 'free_allowance_kg' => $quote['free_allowance_kg'],
+                'excess_pieces' => $quote['excess_pieces'],
                 'price' => $quote['price'],
                 'excess_price' => $quote['excess_price'],
                 'currency' => $flight->airline->currency,
