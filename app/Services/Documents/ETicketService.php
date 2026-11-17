@@ -116,7 +116,7 @@ class ETicketService
                 'baggage_text' => $bag['kg'] === null ? $t('baggage_free') : ($bag['pieces'] === null
                     ? $t('baggage_kg', ['kg' => $bag['kg']]) : $t('baggage_bold', ['kg' => $bag['kg'], 'pieces' => $bag['pieces']])),
                 'baggage_short' => $bag['kg'] === null ? $t('baggage_no_limit') : ($bag['pieces'] === null
-                    ? $bag['kg'].' kg' : ($bag['pieces'] > 1 ? $bag['pieces'].'×' : '').$bag['kg'].' kg'),
+                    ? $bag['kg'].' '.$t('kg') : ($bag['pieces'] > 1 ? $bag['pieces'].'×' : '').$bag['kg'].' '.$t('kg')),
                 'prepaid_baggage_pieces' => (int) $s->prepaidBaggage->sum('pieces'),
                 'checkin' => $this->shortDate($dep->copy()->subHours($checkinHours), $lang).' · '.$dep->copy()->subHours($checkinHours)->format('H:i'),
                 'gate' => $f->gate,

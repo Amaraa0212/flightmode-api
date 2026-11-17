@@ -31,6 +31,7 @@ return [
     'child' => 'Child',
     'infant' => 'Infant on lap',
     'bag' => 'checked bag :kg',
+    'kg' => 'kg',
     'baggage_no_limit' => 'no kg limit',
     'infant_bag' => 'No seat, travels on the adult\'s lap',
     'essentials' => 'Travel essentials',
