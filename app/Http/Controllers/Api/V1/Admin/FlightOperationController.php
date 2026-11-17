@@ -38,6 +38,7 @@ class FlightOperationController extends Controller
             ->withPassengerCounts()
             ->departingOn($date)
             ->get()
+            ->filter(fn (Flight $f) => $f->departsOnLocalDate($date))
             ->sortBy(fn (Flight $f) => $f->departureAt())
             ->values();
 

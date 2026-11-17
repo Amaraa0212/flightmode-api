@@ -98,10 +98,15 @@ abstract class AirlineCrudController extends Controller
 
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $this->find($request, $id)->delete();
+        $model = $this->find($request, $id);
+        $this->beforeDelete($model);
+        $model->delete();
 
         return $this->deleted($this->label().' deleted.');
     }
+
+    /** Refuse to delete a record still in use (throw a BusinessRuleException) */
+    protected function beforeDelete(Model $model): void {}
 
     /** @return array<string, string> custom validation messages */
     protected function messages(): array

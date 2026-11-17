@@ -37,7 +37,8 @@ class FlightController extends Controller
             ->when($request->filled('date'), fn ($q) => $q->departingOn($request->date('date')->toDateString()))
             ->orderBy('scheduled_departure_at')
             ->limit(200)
-            ->get();
+            ->get()
+            ->when($request->filled('date'), fn ($c) => $c->filter(fn (Flight $f) => $f->departsOnLocalDate($request->date('date')->toDateString()))->values());
 
         return FlightResource::collection($flights);
     }

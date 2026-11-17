@@ -23,7 +23,10 @@ class DashboardController extends Controller
     public function __invoke(Request $request): JsonResponse
     {
         $user = $request->user();
-        $today = $this->access->flights(Flight::query(), $user)->departingOn(today()->toDateString())->get(['id', 'status']);
+        $date = now(config('flightmode.timezone'))->toDateString();
+        $today = $this->access->flights(Flight::query(), $user)->with('origin:id,timezone')->departingOn($date)
+            ->get(['id', 'status', 'origin_airport_id', 'scheduled_departure_at', 'estimated_departure_at'])
+            ->filter(fn (Flight $f) => $f->departsOnLocalDate($date))->values();
         $upcoming = $this->access->flights(Flight::query(), $user)->whereBetween('scheduled_departure_at', [now(), now()->addDays(7)]);
 
         return response()->json(['data' => [

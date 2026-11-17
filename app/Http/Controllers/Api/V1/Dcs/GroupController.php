@@ -38,6 +38,12 @@ class GroupController extends Controller
         if ($segments->count() !== count($data['segment_ids'])) {
             throw ValidationException::withMessages(['segment_ids' => 'Some passengers are not on this flight or are infants.']);
         }
+        // bags already accepted were measured against each passenger's own allowance: such a passenger is not grouped
+        $withBags = CheckedBaggage::query()->whereIn('passenger_segment_id', $segments->pluck('id'))->pluck('passenger_segment_id')->unique();
+        if ($withBags->isNotEmpty()) {
+            throw BusinessRuleException::make('group_member_has_baggage',
+                'A passenger with checked baggage cannot be put in a group. Delete their baggage first, or leave them out.');
+        }
 
         $group = DB::transaction(function () use ($flight, $segments, $data, $request) {
             $group = CheckinGroup::create(['flight_id' => $flight->id, 'name' => $data['name'] ?? null, 'created_by' => $request->user()->id]);

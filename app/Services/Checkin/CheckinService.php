@@ -9,6 +9,8 @@ use App\Enums\FlightStatus;
 use App\Enums\SegmentStatus;
 use App\Exceptions\BusinessRuleException;
 use App\Models\AircraftSeat;
+use App\Models\CheckedBaggage;
+use App\Models\CheckinGroup;
 use App\Models\Flight;
 use App\Models\PassengerSegment;
 use App\Services\ActivityLogger;
@@ -104,6 +106,9 @@ class CheckinService
             $segment->save();
 
             $this->syncInfant($segment, SegmentStatus::CheckedIn);
+            if ($firstCheckin) {
+                $this->groupBooking($segment);
+            }
 
             $this->logger->log(
                 $this->channelFor($channel),
@@ -119,6 +124,32 @@ class CheckinService
 
             return $segment->refresh();
         });
+    }
+
+    /**
+     * The people of one PNR on this flight are a check-in group (they share the baggage allowance): made at the first
+     * check-in of the PNR, with the members not grouped yet and without bags of their own (bags were accepted against
+     * their own allowance). A passenger already in a group stays in it.
+     */
+    private function groupBooking(PassengerSegment $segment): void
+    {
+        if ($segment->checkin_group_id || CheckedBaggage::query()->where('passenger_segment_id', $segment->id)->exists()) {
+            return;
+        }
+        $members = PassengerSegment::query()->where('flight_id', $segment->flight_id)
+            ->whereNull('checkin_group_id')
+            ->whereNotIn('status', [SegmentStatus::Cancelled, SegmentStatus::Waitlisted])
+            ->whereHas('passenger', fn ($q) => $q->where('booking_id', $segment->passenger->booking_id)->whereNull('infant_of_passenger_id'))
+            ->whereDoesntHave('checkedBaggage')
+            ->pluck('id');
+        if ($members->count() < 2) {
+            return;
+        }
+
+        $group = CheckinGroup::create(['flight_id' => $segment->flight_id, 'name' => 'PNR '.$segment->passenger->booking?->pnr,
+            'created_by' => auth()->id()]);
+        PassengerSegment::query()->whereIn('id', $members)->update(['checkin_group_id' => $group->id]);
+        $segment->checkin_group_id = $group->id;
     }
 
     /**

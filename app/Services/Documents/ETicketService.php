@@ -110,8 +110,13 @@ class ETicketService
                 'operated' => $t('operated', ['airline' => ($f->airline ?? $airline)->name]),
                 'seats' => implode(' · ', array_filter([$s->seat_number ?? '—', $infantSegments->has($f->id) ? 'INF' : null])),
                 'aircraft' => $f->aircraft?->type,
-                'baggage_kg' => $this->freeBaggage($f, $s, $freeBaggage)['kg'],
-                'baggage_pieces' => $this->freeBaggage($f, $s, $freeBaggage)['pieces'],
+                'baggage_kg' => ($bag = $this->freeBaggage($f, $s, $freeBaggage))['kg'],
+                'baggage_pieces' => $bag['pieces'],
+                // each flight its own allowance (out 15 kg, back 20 kg)
+                'baggage_text' => $bag['kg'] === null ? $t('baggage_free') : ($bag['pieces'] === null
+                    ? $t('baggage_kg', ['kg' => $bag['kg']]) : $t('baggage_bold', ['kg' => $bag['kg'], 'pieces' => $bag['pieces']])),
+                'baggage_short' => $bag['kg'] === null ? $t('baggage_no_limit') : ($bag['pieces'] === null
+                    ? $bag['kg'].' kg' : ($bag['pieces'] > 1 ? $bag['pieces'].'×' : '').$bag['kg'].' kg'),
                 'prepaid_baggage_pieces' => (int) $s->prepaidBaggage->sum('pieces'),
                 'checkin' => $this->shortDate($dep->copy()->subHours($checkinHours), $lang).' · '.$dep->copy()->subHours($checkinHours)->format('H:i'),
                 'gate' => $f->gate,
