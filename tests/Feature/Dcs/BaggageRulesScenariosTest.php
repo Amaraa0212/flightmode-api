@@ -24,7 +24,10 @@ class BaggageRulesScenariosTest extends TestCase
     {
         parent::setUp();
         $this->buildWorld();
-        $this->flight = $this->makeFlight(now()->addHours(3), ['excess_baggage_price_per_kg' => 10000, 'excess_baggage_max_kg' => 15]);
+        $this->flight = $this->makeFlight(now()->addHours(3));
+        // the flight's excess prices: an extra piece 50 000, a kg 10 000
+        $this->rule(['name' => 'EBAG piece', 'type' => 'piece', 'pieces' => 1, 'weight_kg' => 0, 'price' => 50000, 'ssr_code' => 'EBAG']);
+        $this->rule(['name' => 'EBAG kg', 'type' => 'weight', 'weight_kg' => 1, 'price' => 10000, 'ssr_code' => 'EBAG']);
     }
 
     private function rule(array $attributes): BaggageRule
@@ -75,30 +78,65 @@ class BaggageRulesScenariosTest extends TestCase
         $this->assertNotContains($business->id, $ids);
     }
 
-    public function test_piece_rule_allowance_price_and_piece_limit(): void
+    public function test_pc_rule_free_pieces_extra_piece_and_overweight(): void
     {
-        $rule = $this->rule(['name' => '1PC 23', 'type' => 'piece', 'pieces' => 1, 'weight_kg' => 23, 'max_quantity' => 2, 'price' => 5000]);
+        $rule = $this->rule(['name' => '1PC 23', 'type' => 'piece', 'pieces' => 1, 'weight_kg' => 23, 'max_quantity' => 1]);
         $segment = $this->book();
         $this->open();
 
-        // 2 pieces at once: 46 kg free, priced per piece
-        $this->quote($segment, $rule, 2, 40)->assertOk()
-            ->assertJsonPath('data.free_allowance_kg', 46)->assertJsonPath('data.excess_kg', 0)->assertJsonPath('data.price', 10000);
-        $this->bag($segment, $rule, 2, 40)->assertCreated()->assertJsonCount(2, 'data.tags');
-        // the third piece is over max_quantity
-        $this->bag($segment, $rule, 1, 5)->assertStatus(422)->assertJsonPath('code', 'baggage_limit_exceeded');
+        // within the free piece and its 23 kg: free
+        $this->quote($segment, $rule, 1, 23)->assertOk()->assertJsonPath('data.excess_price', 0)->assertJsonPath('data.free_allowance_kg', 23);
+        // 2 pieces of 19 kg in total: the second is an excess piece, priced as a piece (not by kg)
+        $this->quote($segment, $rule, 2, 19)->assertOk()
+            ->assertJsonPath('data.excess_pieces', 1)->assertJsonPath('data.excess_kg', 0)->assertJsonPath('data.excess_price', 50000);
+        // one piece of 26 kg: 3 kg over the piece's 23 kg, priced per kg
+        $this->quote($segment, $rule, 1, 26)->assertOk()
+            ->assertJsonPath('data.excess_pieces', 0)->assertJsonPath('data.excess_kg', 3)->assertJsonPath('data.excess_price', 30000);
+
+        // the free piece is used by the first bag: the next bag is an excess piece
+        $this->bag($segment, $rule, 1, 20)->assertCreated()->assertJsonPath('data.excess_pieces', 0);
+        $this->quote($segment, $rule, 1, 10)->assertOk()->assertJsonPath('data.excess_pieces', 1)->assertJsonPath('data.excess_price', 50000);
     }
 
-    public function test_excess_rule_and_weight_rule_charge_every_kg(): void
+    public function test_kg_rule_counts_the_total_kg_however_many_pieces(): void
     {
-        $ebag = $this->rule(['name' => 'EBAG', 'type' => 'piece', 'pieces' => 1, 'weight_kg' => 0, 'ssr_code' => 'EBAG']);
-        $weight = $this->rule(['name' => 'Per kg', 'type' => 'weight', 'pieces' => 0, 'weight_kg' => 0]);
+        $rule = $this->rule(['name' => '20 KG', 'type' => 'weight', 'pieces' => 1, 'weight_kg' => 20]);
         $segment = $this->book();
         $this->open();
 
-        $this->quote($segment, $ebag, 1, 7)->assertOk()->assertJsonPath('data.free_allowance_kg', 0)
+        // 2 pieces, 19 kg in total: free (not 2 × 20)
+        $this->quote($segment, $rule, 2, 19)->assertOk()
+            ->assertJsonPath('data.free_allowance_kg', 19)->assertJsonPath('data.excess_kg', 0)->assertJsonPath('data.excess_price', 0);
+        // 21 kg: 1 kg excess at the EBAG kg price
+        $this->quote($segment, $rule, 2, 21)->assertOk()
+            ->assertJsonPath('data.free_allowance_kg', 20)->assertJsonPath('data.excess_kg', 1)->assertJsonPath('data.excess_price', 10000);
+        // the pool is shared by every bag of the passenger
+        $this->bag($segment, $rule, 1, 15)->assertCreated();
+        $this->quote($segment, $rule, 1, 8)->assertOk()->assertJsonPath('data.free_allowance_kg', 5)->assertJsonPath('data.excess_kg', 3);
+    }
+
+    public function test_excess_without_an_ebag_rule_is_free(): void
+    {
+        $this->flight->baggageRules()->detach();
+        $rule = $this->rule(['name' => '1PC 23', 'type' => 'piece', 'pieces' => 1, 'weight_kg' => 23]);
+        $segment = $this->book();
+        $this->open();
+
+        $this->quote($segment, $rule, 2, 50)->assertOk()
+            ->assertJsonPath('data.excess_pieces', 1)->assertJsonPath('data.excess_kg', 4)->assertJsonPath('data.excess_price', 0);
+        $this->bag($segment, $rule, 2, 50)->assertCreated();   // nothing to pay
+    }
+
+    public function test_excess_rule_chosen_directly_charges_everything(): void
+    {
+        $segment = $this->book();
+        $this->open();
+        $piece = BaggageRule::query()->where('name', 'EBAG piece')->firstOrFail();
+        $kg = BaggageRule::query()->where('name', 'EBAG kg')->firstOrFail();
+
+        $this->quote($segment, $piece, 2, 30)->assertOk()->assertJsonPath('data.excess_pieces', 2)->assertJsonPath('data.excess_price', 100000);
+        $this->quote($segment, $kg, 1, 7)->assertOk()->assertJsonPath('data.free_allowance_kg', 0)
             ->assertJsonPath('data.excess_kg', 7)->assertJsonPath('data.excess_price', 70000);
-        $this->quote($segment, $weight, 1, 4)->assertOk()->assertJsonPath('data.excess_kg', 4)->assertJsonPath('data.excess_price', 40000);
     }
 
     public function test_prepaid_xbag_is_free_and_limited_to_the_pieces_paid(): void
@@ -113,9 +151,9 @@ class BaggageRulesScenariosTest extends TestCase
         $this->bag($segment, $xbag, 1, 10)->assertStatus(422)->assertJsonPath('code', 'baggage_limit_exceeded');
     }
 
-    public function test_a_check_in_group_shares_one_combined_pool(): void
+    public function test_a_check_in_group_shares_one_kg_pool(): void
     {
-        $rule = $this->rule(['name' => 'Pool 23', 'type' => 'combined', 'pieces' => 1, 'weight_kg' => 23, 'max_quantity' => 3]);
+        $rule = $this->rule(['name' => 'Pool 23', 'type' => 'combined', 'pieces' => 1, 'weight_kg' => 23]);
         $lead = $this->book(['first_name' => 'Nandin', 'document_number' => 'E7300001']);
         $kid = $this->book(['first_name' => 'Anu', 'document_number' => 'E7300002']);
         $this->open();
@@ -125,22 +163,24 @@ class BaggageRulesScenariosTest extends TestCase
         // 2 × 23 = 46 kg for the two of them, used by whoever's bags
         $this->bag($lead->refresh(), $rule, 2, 40)->assertCreated();
         $this->quote($kid->refresh(), $rule, 1, 10)->assertOk()
-            ->assertJsonPath('data.free_allowance_kg', 6)->assertJsonPath('data.excess_kg', 4);
+            ->assertJsonPath('data.free_allowance_kg', 6)->assertJsonPath('data.excess_kg', 4)->assertJsonPath('data.excess_price', 40000);
     }
 
-    public function test_excess_must_be_settled_and_the_cap_counts_every_bag_until_one_is_removed(): void
+    public function test_excess_must_be_settled_and_there_is_no_kg_limit(): void
     {
-        $rule = $this->rule(['name' => '1PC 20', 'type' => 'piece', 'pieces' => 1, 'weight_kg' => 20, 'max_quantity' => 3]);
+        $rule = $this->rule(['name' => '20 KG', 'type' => 'weight', 'pieces' => 1, 'weight_kg' => 20]);
         $segment = $this->book();
         $this->open();
 
+        $this->bag($segment, $rule, 1, 30)->assertStatus(422)->assertJsonPath('code', 'excess_payment_required');
         $this->bag($segment, $rule, 1, 30, ['waive_reason' => 'VIP'])->assertStatus(422)->assertJsonPath('code', 'waive_authorizer_required');
         $first = $this->bag($segment, $rule, 1, 30, ['waive_reason' => 'VIP', 'waive_authorized_by' => 'Duty manager'])
             ->assertCreated()->assertJsonPath('data.waived_amount', '100000.00')->json('data.id');
-        // 10 kg excess so far, cap 15
-        $this->bag($segment, $rule, 1, 26, ['payment_reference' => 'POS-1'])->assertStatus(422)->assertJsonPath('code', 'excess_limit_exceeded');
+        // no excess limit: 60 kg more is just priced
+        $this->bag($segment, $rule, 1, 60, ['payment_reference' => 'POS-1'])->assertCreated()->assertJsonPath('data.excess_price', '600000.00');
+        // removing a bag gives its free kg back
         $this->deleteJson("/api/v1/dcs/baggage/{$first}")->assertOk();
-        $this->bag($segment, $rule, 1, 26, ['payment_reference' => 'POS-1'])->assertCreated()->assertJsonPath('data.excess_price', '60000.00');
+        $this->quote($segment, $rule, 1, 20)->assertOk()->assertJsonPath('data.excess_kg', 0);
     }
 
     public function test_quote_and_accepted_bag_agree(): void

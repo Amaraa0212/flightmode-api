@@ -31,6 +31,7 @@ class CheckedBaggageResource extends JsonResource
             'pieces' => $this->pieces,
             'weight_kg' => $this->weight_kg,
             'free_allowance_kg' => $this->free_allowance_kg,
+            'excess_pieces' => (int) $this->excess_pieces,
             'price' => $this->price,
             'excess_price' => $this->excess_price,
             'payment_reference' => $this->payment_reference,

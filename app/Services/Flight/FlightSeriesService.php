@@ -107,8 +107,6 @@ class FlightSeriesService
                 'scheduled_departure_at' => $departure,
                 'scheduled_arrival_at' => $arrival,
                 'gate' => $series->gate,
-                'excess_baggage_max_kg' => $series->excess_baggage_max_kg,
-                'excess_baggage_price_per_kg' => $series->excess_baggage_price_per_kg,
             ];
 
             $flight = $existing->get($date);

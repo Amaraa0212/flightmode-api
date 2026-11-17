@@ -45,8 +45,6 @@ class FlightResource extends JsonResource
             'status' => $this->status->value,
             'status_reason' => $this->status_reason,
             'is_published' => $this->is_published,
-            'excess_baggage_max_kg' => $this->excess_baggage_max_kg,
-            'excess_baggage_price_per_kg' => $this->excess_baggage_price_per_kg,
             'online_checkin' => [
                 'enabled' => $this->online_checkin_enabled,
                 'opens_minutes' => $this->online_checkin_opens_minutes,

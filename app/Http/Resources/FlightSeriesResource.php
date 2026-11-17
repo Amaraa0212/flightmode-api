@@ -31,8 +31,6 @@ class FlightSeriesResource extends JsonResource
             'arrival_day_offset' => $this->arrival_day_offset,
             'duration_minutes' => $this->duration_minutes,
             'gate' => $this->gate,
-            'excess_baggage_max_kg' => $this->excess_baggage_max_kg,
-            'excess_baggage_price_per_kg' => $this->excess_baggage_price_per_kg,
             'flights_count' => $this->whenCounted('flights'),
         ];
     }

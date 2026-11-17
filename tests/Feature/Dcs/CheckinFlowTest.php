@@ -134,10 +134,10 @@ class CheckinFlowTest extends TestCase
             ->assertJsonPath('data.passenger_title', 'MR')
             ->assertJsonPath('data.piece', '1/1');
 
-        // piece limit of the rule
+        // a piece over the rule's free pieces is an excess piece (free here: the flight has no EBAG rule)
         $this->postJson("/api/v1/dcs/segments/{$segment->id}/baggage", [
             'baggage_rule_id' => $rule->id, 'pieces' => 1, 'weight_kg' => 10,
-        ])->assertStatus(422);
+        ])->assertCreated()->assertJsonPath('data.excess_pieces', 1)->assertJsonPath('data.excess_price', '0.00');
 
         $crew = $this->postJson("/api/v1/dcs/flights/{$this->flight->id}/crew-baggage", ['pieces' => 2, 'weight_kg' => 30])
             ->assertCreated()->json('data.tags');
@@ -145,8 +145,8 @@ class CheckinFlowTest extends TestCase
 
         $pass = $this->getJson("/api/v1/dcs/segments/{$segment->id}/boarding-pass")->assertOk()->json('data');
         $this->assertSame('3A', $pass['seat_number']);
-        $this->assertSame(1, $pass['baggage']['pieces']);
-        $this->assertCount(1, $pass['bag_tags']);
+        $this->assertSame(2, $pass['baggage']['pieces']);
+        $this->assertCount(2, $pass['bag_tags']);
         $this->assertMatchesRegularExpression('/^\d{10}$/', $pass['bag_tags'][0]);
         $this->assertStringStartsWith('M1BOLD/SARA', $pass['barcode']);
         $this->assertStringEndsWith(' 3A '.$segment->id, $pass['barcode']);

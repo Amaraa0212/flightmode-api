@@ -28,8 +28,6 @@ class FlightRequest extends FormRequest
             'no_baggage_rule' => ['boolean'],
             // saving a new time or aircraft: tell the airline's staff and agencies
             'notify_change' => ['boolean'],
-            'excess_baggage_max_kg' => ['nullable', 'numeric', 'min:0'],
-            'excess_baggage_price_per_kg' => ['nullable', 'numeric', 'min:0'],
         ];
     }
 

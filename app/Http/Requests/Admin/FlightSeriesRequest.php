@@ -28,8 +28,6 @@ class FlightSeriesRequest extends FormRequest
             'arrival_day_offset' => ['nullable', 'integer', 'between:0,2'],
             'duration_minutes' => ['nullable', 'integer', 'min:1'],
             'gate' => ['nullable', 'string', 'max:10'],
-            'excess_baggage_max_kg' => ['nullable', 'numeric', 'min:0'],
-            'excess_baggage_price_per_kg' => ['nullable', 'numeric', 'min:0'],
         ];
     }
 

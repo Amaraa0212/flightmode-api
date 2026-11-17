@@ -2,12 +2,14 @@
 
 namespace App\Services\Documents;
 
+use App\Enums\BaggageRuleType;
 use App\Enums\BookingStatus;
 use App\Enums\PassengerType;
 use App\Enums\SegmentStatus;
 use App\Exceptions\BusinessRuleException;
 use App\Mail\ETicketMail;
 use App\Models\Booking;
+use App\Models\Flight;
 use App\Models\Passenger;
 use App\Models\PassengerSegment;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -60,7 +62,7 @@ class ETicketService
             throw BusinessRuleException::make('eticket_infant', 'The e-ticket is issued for the adult; the infant is included in it.');
         }
 
-        $coupons = ['segments.flight.origin', 'segments.flight.destination', 'segments.flight.aircraft', 'segments.flight.airline',
+        $coupons = ['segments.flight.origin', 'segments.flight.destination', 'segments.flight.aircraft', 'segments.flight.airline', 'segments.flight.baggageRules',
             'segments.ssrCodes', 'segments.prepaidBaggage', 'segments.fare.fareClass'];
         $passenger->loadMissing(['booking.airline', 'booking.agency', 'infant.segments', 'infant.linkedPassenger.segments',
             'linkedPassenger.booking', ...$coupons, ...array_map(fn ($r) => "linkedPassenger.{$r}", $coupons)]);
@@ -108,7 +110,8 @@ class ETicketService
                 'operated' => $t('operated', ['airline' => ($f->airline ?? $airline)->name]),
                 'seats' => implode(' · ', array_filter([$s->seat_number ?? '—', $infantSegments->has($f->id) ? 'INF' : null])),
                 'aircraft' => $f->aircraft?->type,
-                'baggage_kg' => (int) ($f->excess_baggage_max_kg ?? $freeBaggage),
+                'baggage_kg' => $this->freeBaggage($f, $s, $freeBaggage)['kg'],
+                'baggage_pieces' => $this->freeBaggage($f, $s, $freeBaggage)['pieces'],
                 'prepaid_baggage_pieces' => (int) $s->prepaidBaggage->sum('pieces'),
                 'checkin' => $this->shortDate($dep->copy()->subHours($checkinHours), $lang).' · '.$dep->copy()->subHours($checkinHours)->format('H:i'),
                 'gate' => $f->gate,
@@ -205,6 +208,29 @@ class ETicketService
      *
      * @return array{name: string, address: ?string, phone: ?string, email: ?string, logo_path: ?string}
      */
+    /**
+     * Free checked baggage of a coupon from the flight's rule for its cabin: a PC rule gives pieces × kg each, a KG rule
+     * a total kg (pieces: null); a "no baggage rule" charter has no limit (kg: null). Without a rule: the default kg.
+     *
+     * @return array{kg: ?int, pieces: ?int}
+     */
+    private function freeBaggage(Flight $flight, PassengerSegment $segment, int $default): array
+    {
+        if ($flight->hasNoBaggageRule()) {
+            return ['kg' => null, 'pieces' => null];
+        }
+        $rule = $flight->baggageRules->where('is_active', true)->whereNull('ssr_code')
+            ->filter(fn ($r) => $r->cabin_class === null || $r->cabin_class === $segment->cabin_class?->value)
+            ->sortBy(fn ($r) => $r->cabin_class === null ? 1 : 0)->first();
+        if (! $rule) {
+            return ['kg' => $default, 'pieces' => 1];
+        }
+
+        return $rule->type === BaggageRuleType::Piece
+            ? ['kg' => (int) $rule->weight_kg, 'pieces' => max(1, (int) $rule->pieces)]
+            : ['kg' => (int) round($rule->freeWeightPerPassenger()), 'pieces' => null];
+    }
+
     /**
      * Conditions of carriage under the e-ticket, as HTML from their Markdown: the agency's own when the ticket carries
      * the agency's details and it has written some, otherwise the airline's (null: the default text).
