@@ -17,7 +17,8 @@ use Illuminate\Support\Collection;
  *    charged as an excess piece (piece EBAG price each); kg over "pieces × rule kg" is excess kg (weight EBAG price per kg)
  *  - KG rule (type weight / combined, e.g. 20 KG): one free kg pool per passenger, whatever the number of pieces
  *    (2 bags of 19 kg in total fit 20 KG); the kg above it are excess kg. A check-in group shares one pool
- *  - XBAG (prepaid): free, as many pieces as were paid; FBAG: free
+ *  - XBAG (prepaid): free, as many pieces as were paid. FBAG (the free allowance) is a PC or KG rule like any other:
+ *    its pieces / kg are free, the rest is excess
  *  - EBAG chosen as the rule: everything is excess at its own price (piece EBAG per piece, weight EBAG per kg)
  *  - excess prices come from the flight's EBAG rules (Shop items): a piece EBAG gives the price of an extra piece, a
  *    weight EBAG the price of a kg. Without one, that excess is free. There is no excess limit
@@ -42,8 +43,6 @@ class BaggagePricing
             $excessPieces = $byPiece ? $pieces : 0;
             $excessKg = $byPiece ? 0.0 : $weightKg;
             $excessPrice = $byPiece ? $pieces * (float) $rule->price : $weightKg * (float) $rule->price;
-        } elseif ($rule->isSsr(BaggageRule::SSR_FREE)) {
-            [$allowance, $excessPieces, $excessKg, $excessPrice] = [$weightKg, 0, 0.0, 0.0];
         } elseif ($rule->type === BaggageRuleType::Piece || $rule->isSsr(BaggageRule::SSR_PREPAID)) {
             // PC: free pieces left for the passenger (group), each up to the rule's kg
             $freePieces = $rule->isSsr(BaggageRule::SSR_PREPAID)
