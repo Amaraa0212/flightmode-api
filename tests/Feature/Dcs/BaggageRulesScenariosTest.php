@@ -123,7 +123,7 @@ class BaggageRulesScenariosTest extends TestCase
         $this->open();
 
         $this->quote($segment, $rule, 2, 50)->assertOk()
-            ->assertJsonPath('data.excess_pieces', 1)->assertJsonPath('data.excess_kg', 4)->assertJsonPath('data.excess_price', 0);
+            ->assertJsonPath('data.excess_pieces', 1)->assertJsonPath('data.excess_kg', 27)->assertJsonPath('data.excess_price', 0);
         $this->bag($segment, $rule, 2, 50)->assertCreated();   // nothing to pay
     }
 
@@ -238,5 +238,37 @@ class BaggageRulesScenariosTest extends TestCase
             ->assertJsonPath('data.excess_kg', 3)->assertJsonPath('data.excess_price', 18000);
         $this->bag($segment, $free, 1, 23)->assertStatus(422)->assertJsonPath('code', 'excess_payment_required');
         $this->bag($segment, $free, 1, 23, ['payment_reference' => 'TX-1'])->assertCreated()->assertJsonPath('data.excess_price', '18000.00');
+    }
+
+    public function test_a_second_bag_after_the_free_piece_is_not_free_again(): void
+    {
+        // prod: FBAG PC 1 × 20 kg, only a kg EBAG (6,000 per kg), no piece EBAG
+        $this->flight->baggageRules()->detach();
+        $free = $this->rule(['name' => '20KG Free', 'type' => 'piece', 'pieces' => 1, 'weight_kg' => 20, 'ssr_code' => 'FBAG']);
+        $this->rule(['name' => 'Excess bag', 'type' => 'weight', 'pieces' => 1, 'weight_kg' => 1, 'ssr_code' => 'EBAG', 'price' => 6000]);
+        $segment = $this->book();
+        $this->open();
+
+        $this->bag($segment, $free, 1, 18)->assertCreated()->assertJsonPath('data.excess_price', '0.00');
+        // the free piece is used: the next bag's kg are all excess
+        $this->quote($segment, $free, 1, 20)->assertOk()->assertJsonPath('data.excess_pieces', 1)
+            ->assertJsonPath('data.free_allowance_kg', 0)->assertJsonPath('data.excess_kg', 20)->assertJsonPath('data.excess_price', 120000);
+        // both at once: one piece free (20 kg), the other's 15 kg excess
+        $other = $this->book(['first_name' => 'Saraa']);
+        $this->quote($other, $free, 2, 35)->assertOk()->assertJsonPath('data.free_allowance_kg', 20)
+            ->assertJsonPath('data.excess_kg', 15)->assertJsonPath('data.excess_price', 90000);
+    }
+
+    public function test_a_paid_extra_piece_carries_the_rules_kg(): void
+    {
+        // the flight's EBAG rules: a piece 50,000, a kg 10,000
+        $free = $this->rule(['name' => '1PC 20', 'type' => 'piece', 'pieces' => 1, 'weight_kg' => 20, 'ssr_code' => 'FBAG']);
+        $segment = $this->book();
+        $this->open();
+
+        $this->bag($segment, $free, 1, 20)->assertCreated();
+        // an extra piece: its price, up to 20 kg in it; 2 kg over at the kg price
+        $this->quote($segment, $free, 1, 22)->assertOk()->assertJsonPath('data.excess_pieces', 1)
+            ->assertJsonPath('data.excess_kg', 2)->assertJsonPath('data.excess_price', 70000);
     }
 }
