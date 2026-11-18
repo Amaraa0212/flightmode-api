@@ -14,7 +14,7 @@ use Illuminate\Support\Collection;
  * Free allowance, excess and price of a bag — the only place this is calculated (the DCS only shows the quote).
  *
  *  - PC rule (type piece, e.g. 1PC 23KG): the rule's pieces are free, each up to the rule's kg. A piece over them is
- *    charged as an excess piece (piece EBAG price each); kg over "pieces × rule kg" is excess kg (weight EBAG price per kg)
+ *    charged as an excess piece (piece EBAG price each, carrying the rule kg; without a piece EBAG its kg are all excess); kg over "pieces × rule kg" is excess kg (weight EBAG price per kg)
  *  - KG rule (type weight / combined, e.g. 20 KG): one free kg pool per passenger, whatever the number of pieces
  *    (2 bags of 19 kg in total fit 20 KG); the kg above it are excess kg. A check-in group shares one pool
  *  - XBAG (prepaid): free, as many pieces as were paid. FBAG (the free allowance) is a PC or KG rule like any other:
@@ -54,7 +54,9 @@ class BaggagePricing
                     ->where('baggage_rule_id', $rule->id)->sum('excess_pieces');
             $covered = max(0, min($pieces, $freePieces - $usedPieces));
             $excessPieces = $pieces - $covered;
-            $limit = $pieces * (float) $rule->weight_kg;
+            // kg free: the rule's kg in each free piece, and in each extra piece paid at the piece EBAG price.
+            // Without a piece EBAG an extra piece is not free: its kg are excess kg
+            $limit = ($covered + ($perPiece > 0 ? $excessPieces : 0)) * (float) $rule->weight_kg;
             $allowance = min($weightKg, $limit);
             $excessKg = round(max(0.0, $weightKg - $limit), 1);
             $excessPrice = $excessPieces * $perPiece + $excessKg * $perKg;
