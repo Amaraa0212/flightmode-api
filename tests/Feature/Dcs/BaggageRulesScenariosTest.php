@@ -224,4 +224,19 @@ class BaggageRulesScenariosTest extends TestCase
         $this->postJson("/api/v1/dcs/segments/{$segment->id}/baggage", ['pieces' => 2, 'weight_kg' => 60])
             ->assertCreated()->assertJsonPath('data.excess_price', '0.00');
     }
+
+    public function test_the_free_allowance_ssr_keeps_its_kg_and_the_rest_is_excess(): void
+    {
+        // as set up on prod: "20KG Free" FBAG PC 1 × 20 kg, "Excess bag" EBAG KG 6,000 per kg
+        $free = $this->rule(['name' => '20KG Free', 'type' => 'piece', 'pieces' => 1, 'weight_kg' => 20, 'max_quantity' => 0, 'ssr_code' => 'FBAG']);
+        $this->rule(['name' => 'Excess bag', 'type' => 'weight', 'pieces' => 1, 'weight_kg' => 1, 'ssr_code' => 'EBAG', 'price' => 6000, 'cabin_class' => 'Y']);
+        $segment = $this->book();
+        $this->open();
+
+        $this->quote($segment, $free, 1, 20)->assertOk()->assertJsonPath('data.excess_price', 0);
+        $this->quote($segment, $free, 1, 23)->assertOk()->assertJsonPath('data.free_allowance_kg', 20)
+            ->assertJsonPath('data.excess_kg', 3)->assertJsonPath('data.excess_price', 18000);
+        $this->bag($segment, $free, 1, 23)->assertStatus(422)->assertJsonPath('code', 'excess_payment_required');
+        $this->bag($segment, $free, 1, 23, ['payment_reference' => 'TX-1'])->assertCreated()->assertJsonPath('data.excess_price', '18000.00');
+    }
 }
