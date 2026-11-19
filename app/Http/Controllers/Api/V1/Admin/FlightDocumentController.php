@@ -14,6 +14,7 @@ use App\Services\Access\AccessScope;
 use App\Services\Documents\ManifestService;
 use App\Services\Documents\PassengerReconciliation;
 use App\Services\Documents\PnlGenerator;
+use App\Services\Seat\SeatMapService;
 use App\Support\Spreadsheet\SpreadsheetExport;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -31,7 +32,16 @@ class FlightDocumentController extends Controller
         private readonly PnlGenerator $pnl,
         private readonly ManifestService $manifest,
         private readonly PassengerReconciliation $reconciliation,
+        private readonly SeatMapService $seatMap,
     ) {}
+
+    /** Seat map with its occupants for the printed W&B / load report (the DCS counter print, from the admin) */
+    public function seatMap(Request $request, Flight $flight): JsonResponse
+    {
+        $this->access->ensureFlight($request->user(), $flight);
+
+        return response()->json(['data' => $this->seatMap->forFlight($flight, withOccupants: true)]);
+    }
 
     public function pnl(Request $request, Flight $flight): Response
     {

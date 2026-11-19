@@ -180,6 +180,7 @@ Route::middleware('perm:manifest.view,pnl_report.view')->group(function () {
     Route::get('flights/{flight}/documents/passengers', [Admin\FlightDocumentController::class, 'passengers']);
     Route::get('flights/{flight}/documents/apis', [Admin\FlightDocumentController::class, 'apis']);
     Route::get('flights/{flight}/documents/manifest', [Admin\FlightDocumentController::class, 'manifest']);
+    Route::get('flights/{flight}/documents/seat-map', [Admin\FlightDocumentController::class, 'seatMap']);
     Route::get('flights/{flight}/documents/no-show', [Admin\FlightDocumentController::class, 'noShow']);
 });
 Route::post('flights/{flight}/documents/email', [Admin\FlightDocumentController::class, 'email'])->middleware('perm:manifest.export');
