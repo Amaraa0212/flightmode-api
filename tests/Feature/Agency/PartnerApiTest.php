@@ -20,6 +20,8 @@ class PartnerApiTest extends TestCase
     private function issueToken(): string
     {
         $agent = $this->makeUser('agency-agent');
+        // an airline admin manages the users of the agencies its airline created
+        $this->agency->update(['owner_airline_id' => $this->airline->id]);
         $this->actingAsRole('airline-admin');
         $token = $this->postJson("/api/v1/admin/users/{$agent->id}/api-token")->assertCreated()->json('data.token');
         $this->app['auth']->forgetGuards();

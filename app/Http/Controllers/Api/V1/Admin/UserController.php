@@ -7,6 +7,7 @@ use App\Enums\RoleScope;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\UserRequest;
 use App\Http\Resources\UserResource;
+use App\Models\Agency;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Access\TwoFactor;
@@ -21,7 +22,7 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * Users. System admins manage everyone; airline admins manage their airline's staff and the users of
- * contracted agencies; agency admins manage their own agency's users (legacy sub-agents).
+ * the agencies the airline created (not every contracted one); agency admins manage their own agency's users (legacy sub-agents).
  */
 class UserController extends Controller
 {
@@ -158,12 +159,19 @@ class UserController extends Controller
     {
         return User::query()->when(! $actor->isSystemAdmin(), function (Builder $q) use ($actor) {
             if ($actor->airline_id) {
-                $agencyIds = $actor->airline?->agencies()->pluck('agencies.id')->all() ?? [];
+                // the agencies this airline created (its direct agencies), not every contracted one
+                $agencyIds = $this->ownAgencyIds($actor);
                 $q->where(fn ($x) => $x->where('airline_id', $actor->airline_id)->orWhereIn('agency_id', $agencyIds));
             } else {
                 $q->where('agency_id', $actor->agency_id ?? 0);
             }
         });
+    }
+
+    /** @return list<int> agencies created by the actor's airline: the only agency users an airline admin manages */
+    private function ownAgencyIds(User $actor): array
+    {
+        return Agency::query()->where('owner_airline_id', $actor->airline_id ?? 0)->pluck('id')->map(fn ($id) => (int) $id)->all();
     }
 
     private function ensureVisible(User $actor, User $user): void
@@ -190,9 +198,8 @@ class UserController extends Controller
 
             if ($actor->airline_id) {
                 if ($role->scope === RoleScope::Agency) {
-                    $contracted = $actor->airline->agencies()->whereKey($data['agency_id'] ?? 0)->exists();
-                    if (! $contracted) {
-                        throw ValidationException::withMessages(['agency_id' => 'Choose an agency contracted with your airline.']);
+                    if (! in_array((int) ($data['agency_id'] ?? 0), $this->ownAgencyIds($actor), true)) {
+                        throw ValidationException::withMessages(['agency_id' => 'Choose an agency your airline created.']);
                     }
                     $data['airline_id'] = null;
                 } else {

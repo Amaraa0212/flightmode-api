@@ -75,6 +75,8 @@ class SeatMapService
                     'passenger_id' => $occupant->passenger_id,
                     'name' => $occupant->passenger?->fullName(),
                     'status' => $occupant->status->value,
+                    // an infant on the lap: zone counts show ADT+INF
+                    'has_infant' => $occupant->passenger?->infant !== null,
                 ] : null,
             ], fn ($v) => $v !== null);
         });
@@ -90,7 +92,7 @@ class SeatMapService
     /** @return Collection<string, PassengerSegment> seat_number => segment */
     public function occupiedSeats(Flight $flight): Collection
     {
-        return PassengerSegment::query()->with('passenger')
+        return PassengerSegment::query()->with(['passenger.infant'])
             ->where('flight_id', $flight->id)
             ->whereNotNull('seat_number')
             ->whereNotIn('status', [SegmentStatus::Cancelled, SegmentStatus::Waitlisted])
