@@ -34,6 +34,8 @@ class Round11Test extends TestCase
         $ids = fn ($day) => array_column($this->getJson('/api/v1/admin/flight-board?date='.$day)->assertOk()->json('data'), 'id');
         $this->assertContains($flight->id, $ids($local));
         $this->assertNotContains($flight->id, $ids($utc));
+        // the manifest page shows the board row's airline
+        $this->getJson('/api/v1/admin/flight-board?date='.$local)->assertOk()->assertJsonPath('data.0.airline.name', $this->airline->name);
     }
 
     public function test_the_eticket_shows_each_flights_own_baggage(): void
