@@ -14,6 +14,7 @@ class AirlineSsrResource extends JsonResource
         return [
             'id' => $this->id,
             'airline_id' => $this->airline_id,
+            'airline' => $this->whenLoaded('airline', fn () => ['id' => $this->airline->id, 'name' => $this->airline->name, 'iata_code' => $this->airline->iata_code]),
             'ssr' => new SsrCodeResource($this->whenLoaded('ssrCode')),
             'price' => $this->price,
             'currency' => $this->currency,
