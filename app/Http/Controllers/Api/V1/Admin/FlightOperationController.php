@@ -34,7 +34,7 @@ class FlightOperationController extends Controller
         $date = ($request->date('date') ?? today())->toDateString();
 
         $flights = $this->access->flights(Flight::query(), $request->user())
-            ->with(['aircraft', 'origin', 'destination', 'gateAgents'])
+            ->with(['airline', 'aircraft', 'origin', 'destination', 'gateAgents'])
             ->withPassengerCounts()
             ->departingOn($date)
             ->get()

@@ -34,7 +34,7 @@ return [
     'kg' => 'kg',
     'baggage_no_limit' => 'no kg limit',
     'infant_bag' => 'No seat, travels on the adult\'s lap',
-    'essentials' => 'Travel essentials',
+    'essentials' => 'Travel information',
     'checkin' => 'Check-in',
     'gate' => 'Boarding gate',
     'gate_later' => 'Available at check-in',
