@@ -7,7 +7,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Support\Facades\Storage;
 
 class Airline extends Model
 {
@@ -58,7 +57,8 @@ class Airline extends Model
             return null;
         }
 
-        return str_starts_with($this->logo_path, 'http') ? $this->logo_path : Storage::disk('public')->url($this->logo_path);
+        // a path is relative to public/ (the e-ticket PDF reads the same file from disk)
+        return str_starts_with($this->logo_path, 'http') ? $this->logo_path : asset($this->logo_path);
     }
 
     public function scopeActive(Builder $query): void
