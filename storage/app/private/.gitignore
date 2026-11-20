@@ -1,2 +1,7 @@
 *
 !.gitignore
+# QZ Tray: the legacy flightmode pair (QZ Tray Demo Cert), so one override.crt on a counter trusts both systems.
+# The key is already public in the legacy site's sign-message.js.
+!qz/
+!qz/digital-certificate.txt
+!qz/private-key.pem
