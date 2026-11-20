@@ -13,6 +13,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class AirlineController extends Controller
 {
@@ -66,10 +67,15 @@ class AirlineController extends Controller
     public function uploadLogo(Request $request, Airline $airline): JsonResponse
     {
         $this->ensureOwn($request, $airline);
-        $request->validate(['logo' => ['required', 'file', 'mimes:png,jpg,jpeg,webp', 'max:2048']]);
+        $request->validate(['logo' => ['required', 'file', 'mimes:png,jpg,jpeg,webp,svg', 'max:2048']]);
 
         $file = $request->file('logo');
-        $name = 'airline-'.$airline->id.'-'.Str::lower(Str::random(8)).'.'.$file->extension();
+        $svg = in_array(strtolower($file->getClientOriginalExtension()), ['svg'], true) || $file->getMimeType() === 'image/svg+xml';
+        // an SVG is served from the API's own domain: only a plain drawing — no script, handlers, links or outside files
+        if ($svg && ! $this->isSafeSvg((string) file_get_contents($file->getRealPath()))) {
+            throw ValidationException::withMessages(['logo' => 'This SVG has scripts, links or outside references — export it as a plain SVG or a PNG.']);
+        }
+        $name = 'airline-'.$airline->id.'-'.Str::lower(Str::random(8)).'.'.($svg ? 'svg' : $file->extension());
         $file->move(public_path(self::LOGO_DIR), $name);
         $this->removeLogoFile($airline);
         $airline->update(['logo_path' => self::LOGO_DIR.'/'.$name]);
@@ -84,6 +90,16 @@ class AirlineController extends Controller
         $airline->update(['logo_path' => null]);
 
         return $this->success('Logo removed.', new AirlineResource($airline));
+    }
+
+    /** A plain SVG drawing: an <svg> root and nothing that runs code or loads something from elsewhere */
+    private function isSafeSvg(string $content): bool
+    {
+        if (! preg_match('/<svg[\s>]/i', $content)) {
+            return false;
+        }
+
+        return ! preg_match('/<\s*(script|foreignObject|iframe|object|embed)\b|\son[a-z]+\s*=|javascript:|<!ENTITY|@import|url\(\s*["\']?\s*(?!#|data:image\/)[a-z]+:|(?:xlink:)?href\s*=\s*["\'](?!#|data:image\/)/i', $content);
     }
 
     /** Only a file this screen uploaded is deleted (never an external URL or another path) */
