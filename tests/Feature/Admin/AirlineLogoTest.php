@@ -61,4 +61,32 @@ class AirlineLogoTest extends TestCase
         $this->post("/api/v1/admin/airlines/{$other->id}/logo", ['logo' => UploadedFile::fake()->image('logo.png')], ['Accept' => 'application/json'])
             ->assertForbidden();
     }
+
+    public function test_a_plain_svg_logo_is_saved_and_an_unsafe_one_refused(): void
+    {
+        $this->actingAsRole('airline-admin');
+        $url = "/api/v1/admin/airlines/{$this->airline->id}/logo";
+        $svg = fn (string $body) => UploadedFile::fake()->createWithContent('logo.svg',
+            '<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 400 120">'.$body.'</svg>');
+        $post = fn (UploadedFile $file) => $this->post($url, ['logo' => $file], ['Accept' => 'application/json']);
+
+        // a design tool's export: shapes, text, internal <use href="#…">
+        $path = $post($svg('<defs><path id="w" d="M0 0h40v40H0z"/></defs><use xlink:href="#w"/><text x="50" y="80">HUNNU</text>'))
+            ->assertOk()->json('data.logo_path');
+        $this->assertStringEndsWith('.svg', $path);
+        $this->assertFileExists(public_path($path));
+
+        foreach ([
+            '<script>alert(1)</script>',
+            '<rect width="10" height="10" onload="alert(1)"/>',
+            '<a href="javascript:alert(1)"><rect width="10" height="10"/></a>',
+            '<image href="https://example.com/x.png"/>',
+            '<foreignObject><div>x</div></foreignObject>',
+            '<style>@import url(https://example.com/x.css);</style>',
+        ] as $unsafe) {
+            $post($svg($unsafe))->assertStatus(422)->assertJsonValidationErrors('logo');
+        }
+        // the refused uploads did not replace the saved logo
+        $this->assertSame($path, $this->airline->fresh()->logo_path);
+    }
 }
