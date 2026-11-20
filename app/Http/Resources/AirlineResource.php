@@ -22,6 +22,7 @@ class AirlineResource extends JsonResource
             'address' => $this->address,
             'registration_no' => $this->registration_no,
             'logo_path' => $this->logo_path,
+            'logo_url' => $this->logoUrl(),
             'brand_color' => $this->brand_color,
             'conditions_of_carriage' => $this->conditions_of_carriage,
             'updated_at' => $this->updated_at?->toIso8601String(),

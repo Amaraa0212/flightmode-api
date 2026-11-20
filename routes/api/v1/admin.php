@@ -17,6 +17,8 @@ Route::get('dashboard', Admin\DashboardController::class)->middleware('perm:dash
 Route::apiResource('airlines', Admin\AirlineController::class)->only(['index', 'show'])->middleware('crud:airlines,carriage,bag_tag,lookup');
 Route::apiResource('airlines', Admin\AirlineController::class)->only(['store', 'destroy'])->middleware('crud:airlines');
 Route::put('airlines/{airline}', [Admin\AirlineController::class, 'update'])->middleware('crud:airlines,carriage,bag_tag');
+Route::post('airlines/{airline}/logo', [Admin\AirlineController::class, 'uploadLogo'])->middleware('crud:airlines,carriage,bag_tag');
+Route::delete('airlines/{airline}/logo', [Admin\AirlineController::class, 'removeLogo'])->middleware('crud:airlines,carriage,bag_tag');
 Route::get('airlines/{airline}/agencies', [Admin\AirlineController::class, 'agencies'])->middleware('perm:agency_access.view,airlines.view');
 Route::put('airlines/{airline}/agencies/{agency}', [Admin\AirlineController::class, 'setAgencyContract'])->middleware('perm:agency_access.update');
 Route::delete('airlines/{airline}/agencies/{agency}', [Admin\AirlineController::class, 'removeAgencyContract'])->middleware('perm:agency_access.delete');

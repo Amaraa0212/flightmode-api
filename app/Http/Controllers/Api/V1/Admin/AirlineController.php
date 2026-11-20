@@ -12,10 +12,13 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Str;
 
 class AirlineController extends Controller
 {
     /** What an airline's own users may change: contacts, plus the settings other screens save here. */
+    private const LOGO_DIR = 'logos';
+
     private const OWN_FIELDS = ['email', 'phone', 'address', 'logo_path', 'brand_color', 'conditions_of_carriage', 'bag_tag_layout', 'bag_tag_rotation'];
 
     public function index(Request $request): AnonymousResourceCollection
@@ -54,6 +57,42 @@ class AirlineController extends Controller
         $airline->update($data);
 
         return $this->success('Airline updated.', new AirlineResource($airline));
+    }
+
+    /**
+     * The airline's logo (e-ticket, boarding pass, bag tag). Saved under public/logos so the web server serves it
+     * and the PDFs read it from disk; a new upload replaces the old file.
+     */
+    public function uploadLogo(Request $request, Airline $airline): JsonResponse
+    {
+        $this->ensureOwn($request, $airline);
+        $request->validate(['logo' => ['required', 'file', 'mimes:png,jpg,jpeg,webp', 'max:2048']]);
+
+        $file = $request->file('logo');
+        $name = 'airline-'.$airline->id.'-'.Str::lower(Str::random(8)).'.'.$file->extension();
+        $file->move(public_path(self::LOGO_DIR), $name);
+        $this->removeLogoFile($airline);
+        $airline->update(['logo_path' => self::LOGO_DIR.'/'.$name]);
+
+        return $this->success('Logo saved.', new AirlineResource($airline));
+    }
+
+    public function removeLogo(Request $request, Airline $airline): JsonResponse
+    {
+        $this->ensureOwn($request, $airline);
+        $this->removeLogoFile($airline);
+        $airline->update(['logo_path' => null]);
+
+        return $this->success('Logo removed.', new AirlineResource($airline));
+    }
+
+    /** Only a file this screen uploaded is deleted (never an external URL or another path) */
+    private function removeLogoFile(Airline $airline): void
+    {
+        $path = (string) $airline->logo_path;
+        if (str_starts_with($path, self::LOGO_DIR.'/') && ! str_contains($path, '..') && is_file(public_path($path))) {
+            @unlink(public_path($path));
+        }
     }
 
     public function destroy(Request $request, Airline $airline): JsonResponse
