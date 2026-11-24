@@ -34,9 +34,41 @@ class BaggageRule extends Model
         ];
     }
 
+    /**
+     * A rule always belongs to a group: one created on its own (seeders, older code) gets a group of its own, and a
+     * group left with no rules goes with its last one.
+     */
+    protected static function booted(): void
+    {
+        static::creating(function (BaggageRule $rule) {
+            if ($rule->baggage_rule_group_id) {
+                return;
+            }
+            $rule->baggage_rule_group_id = BaggageRuleGroup::create([
+                'airline_id' => $rule->airline_id,
+                'name' => $rule->name,
+                'type' => $rule->type,
+                'cabin_class' => $rule->cabin_class,
+                'max_quantity' => $rule->max_quantity,
+                'currency' => $rule->currency ?? 'MNT',
+                'is_active' => $rule->is_active ?? true,
+            ])->id;
+        });
+        static::deleted(function (BaggageRule $rule) {
+            if ($rule->baggage_rule_group_id && ! static::query()->where('baggage_rule_group_id', $rule->baggage_rule_group_id)->exists()) {
+                BaggageRuleGroup::query()->whereKey($rule->baggage_rule_group_id)->delete();
+            }
+        });
+    }
+
     public function airline(): BelongsTo
     {
         return $this->belongsTo(Airline::class);
+    }
+
+    public function group(): BelongsTo
+    {
+        return $this->belongsTo(BaggageRuleGroup::class, 'baggage_rule_group_id');
     }
 
     public function scopeActive(Builder $query): void
