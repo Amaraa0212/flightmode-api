@@ -127,6 +127,38 @@ class CheckinService
     }
 
     /**
+     * After a group member's check-in at the counter: the other members of the check-in group whose seats are held
+     * (booked, seat kept, not checked in yet) are checked in on those seats too. A member that cannot be checked in
+     * (ticket on hold, ban list …) is left as it is and reported.
+     *
+     * @return array{checked_in: list<PassengerSegment>, skipped: list<string>}
+     */
+    public function checkInHeldGroupMates(PassengerSegment $segment, CheckinChannel $channel): array
+    {
+        $result = ['checked_in' => [], 'skipped' => []];
+        if (! $segment->checkin_group_id) {
+            return $result;
+        }
+        $mates = PassengerSegment::query()->with('passenger')
+            ->where('checkin_group_id', $segment->checkin_group_id)
+            ->whereKeyNot($segment->id)
+            ->where('status', SegmentStatus::Booked)
+            ->whereNotNull('seat_number')
+            ->whereHas('passenger', fn ($q) => $q->whereNull('infant_of_passenger_id'))
+            ->orderBy('id')->get();
+
+        foreach ($mates as $mate) {
+            try {
+                $result['checked_in'][] = $this->checkIn($mate, $mate->seat_number, $channel);
+            } catch (BusinessRuleException $e) {
+                $result['skipped'][] = $mate->passenger->last_name.'/'.$mate->passenger->first_name.': '.$e->getMessage();
+            }
+        }
+
+        return $result;
+    }
+
+    /**
      * The people of one PNR on this flight are a check-in group (they share the baggage allowance): made at the first
      * check-in of the PNR, with the members not grouped yet and without bags of their own (bags were accepted against
      * their own allowance). A passenger already in a group stays in it.
