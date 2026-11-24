@@ -2,11 +2,14 @@
 
 namespace App\Services\Seat;
 
+use App\Events\Checkin\SeatsChanged;
 use Illuminate\Support\Facades\Cache;
 
 /**
  * Short-lived seat holds while a passenger picks a seat in online check-in,
  * so two people cannot pick the same seat at the same time.
+ * The hold key itself is the source of truth (Cache::add is atomic); the per-flight index only lists
+ * which keys to look at when drawing the seat map.
  */
 class SeatHoldService
 {
@@ -14,23 +17,43 @@ class SeatHoldService
 
     public function hold(int $flightId, string $seatNumber, string $holder): bool
     {
-        $current = Cache::get($this->key($flightId, $seatNumber));
-        if ($current !== null && $current !== $holder) {
-            return false;
+        $key = $this->key($flightId, $seatNumber);
+        $ttl = now()->addMinutes(self::TTL_MINUTES);
+
+        if (! Cache::add($key, $holder, $ttl)) {
+            if (Cache::get($key) !== $holder) {
+                return false;
+            }
+            Cache::put($key, $holder, $ttl); // own hold: just extend it
+
+            return true;
         }
 
-        Cache::put($this->key($flightId, $seatNumber), $holder, now()->addMinutes(self::TTL_MINUTES));
         $this->remember($flightId, $seatNumber);
+        SeatsChanged::announce($flightId, [$seatNumber => SeatsChanged::HELD]);
 
         return true;
     }
 
-    public function release(int $flightId, string $seatNumber, ?string $holder = null): void
+    /** @param bool $announce false when the seat is being taken right away (check-in announces it as occupied) */
+    public function release(int $flightId, string $seatNumber, ?string $holder = null, bool $announce = true): void
     {
         $key = $this->key($flightId, $seatNumber);
-        if ($holder === null || Cache::get($key) === $holder) {
-            Cache::forget($key);
+        $current = Cache::get($key);
+        if ($current === null || ($holder !== null && $current !== $holder)) {
+            return;
         }
+
+        Cache::forget($key);
+        if ($announce) {
+            SeatsChanged::announce($flightId, [$seatNumber => SeatsChanged::RELEASED]);
+        }
+    }
+
+    /** Who holds the seat right now (null = nobody). */
+    public function holder(int $flightId, string $seatNumber): ?string
+    {
+        return Cache::get($this->key($flightId, $seatNumber));
     }
 
     /** @return array<string, string> seat_number => holder, for holds that are still alive */
@@ -47,11 +70,14 @@ class SeatHoldService
         return $holds;
     }
 
+    /** Read-modify-write of the index under a lock, so two holds at once do not drop each other. */
     private function remember(int $flightId, string $seatNumber): void
     {
-        $seats = Cache::get($this->indexKey($flightId), []);
-        $seats[] = $seatNumber;
-        Cache::put($this->indexKey($flightId), array_values(array_unique($seats)), now()->addHours(12));
+        Cache::lock($this->indexKey($flightId).':lock', 5)->block(3, function () use ($flightId, $seatNumber) {
+            $seats = Cache::get($this->indexKey($flightId), []);
+            $seats[] = $seatNumber;
+            Cache::put($this->indexKey($flightId), array_values(array_unique($seats)), now()->addHours(12));
+        });
     }
 
     private function key(int $flightId, string $seatNumber): string

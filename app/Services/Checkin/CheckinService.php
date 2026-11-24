@@ -15,6 +15,7 @@ use App\Models\Flight;
 use App\Models\PassengerSegment;
 use App\Services\ActivityLogger;
 use App\Services\Seat\SeatMapService;
+use Closure;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -44,14 +45,15 @@ class CheckinService
      * Check a passenger in and give them a seat. Without a seat number the next free seat
      * is picked following the flight's seat assignment profile.
      *
-     * @param  array<string>|null  $autoSeatChoices  seats the automatic pick may use (online check-in restrictions), null = any
+     * @param  array<string>|(Closure(): array<string>)|null  $autoSeatChoices  seats the automatic pick may use (online check-in
+     *                                                                          restrictions), null = any; a closure is evaluated under the flight lock
      */
     public function checkIn(
         PassengerSegment $segment,
         ?string $seatNumber,
         CheckinChannel $channel,
         bool $allowCabinChange = true,
-        ?array $autoSeatChoices = null,
+        array|Closure|null $autoSeatChoices = null,
     ): PassengerSegment {
         return DB::transaction(function () use ($segment, $seatNumber, $channel, $allowCabinChange, $autoSeatChoices) {
             /** @var Flight $flight */
@@ -328,13 +330,14 @@ class CheckinService
     }
 
     /** Next free seat in the passenger's cabin, zones in the order of the seat assignment profile. */
-    /** @param array<string>|null $choices */
-    private function autoSeat(Flight $flight, PassengerSegment $segment, ?array $choices = null): AircraftSeat
+    /** @param array<string>|(Closure(): array<string>)|null $choices */
+    private function autoSeat(Flight $flight, PassengerSegment $segment, array|Closure|null $choices = null): AircraftSeat
     {
         if ($segment->seat_number) {
             return AircraftSeat::query()->where('aircraft_id', $flight->aircraft_id)->where('seat_number', $segment->seat_number)->firstOrFail();
         }
 
+        $choices = $choices instanceof Closure ? $choices() : $choices;
         $zones = $flight->seatAssignmentProfile?->orderedZones() ?? [];
         $taken = $this->seatMap->occupiedSeats($flight)->keys()->all();
         $blocked = $flight->seatBlocks()->pluck('seat_number')->all();

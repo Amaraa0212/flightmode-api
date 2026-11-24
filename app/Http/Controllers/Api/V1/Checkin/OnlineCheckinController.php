@@ -21,17 +21,26 @@ class OnlineCheckinController extends Controller
 {
     public function __construct(private readonly OnlineCheckinService $checkin) {}
 
-    public function lookup(Request $request): JsonResponse
+    /** Oyu Tolgoi entry: SAP person number alone opens a session for that person. */
+    public function lookupBySap(Request $request): JsonResponse
     {
         $data = $request->validate(['person_code' => ['required', 'string', 'max:20']]);
 
-        return response()->json(['data' => $this->checkin->lookup($data['person_code'])]);
+        return response()->json(['data' => $this->checkin->lookupBySap($data['person_code'])]);
+    }
+
+    /** Public entry: PNR + last name, then a code e-mailed to the booking's stored address. */
+    public function lookupByPnr(Request $request): JsonResponse
+    {
+        $data = $request->validate(['pnr' => ['required', 'string', 'max:8'], 'last_name' => ['required', 'string', 'max:100']]);
+
+        return response()->json(['data' => $this->checkin->lookupByPnr($data['pnr'], $data['last_name'])]);
     }
 
     public function sendCode(Request $request): JsonResponse
     {
-        $data = $request->validate(['lookup_token' => ['required', 'string'], 'email' => ['required', 'email']]);
-        $this->checkin->sendCode($data['lookup_token'], $data['email']);
+        $data = $request->validate(['lookup_token' => ['required', 'string']]);
+        $this->checkin->sendCode($data['lookup_token']);
 
         return response()->json(['message' => 'Verification code sent.']);
     }
@@ -41,6 +50,12 @@ class OnlineCheckinController extends Controller
         $data = $request->validate(['lookup_token' => ['required', 'string'], 'code' => ['required', 'digits:4']]);
 
         return response()->json(['data' => $this->checkin->verify($data['lookup_token'], $data['code'])]);
+    }
+
+    /** Flights of the session that are open online (to come back to the list after a check-in). */
+    public function flights(Request $request): JsonResponse
+    {
+        return response()->json(['data' => $this->checkin->sessionFlights($this->token($request))]);
     }
 
     public function passengers(Request $request, Flight $flight): JsonResponse
@@ -74,6 +89,13 @@ class OnlineCheckinController extends Controller
         $this->checkin->holdSeat($this->token($request), $flight, $data['seat_number']);
 
         return response()->json(['message' => 'Seat held for '.SeatHoldService::TTL_MINUTES.' minutes.']);
+    }
+
+    public function releaseSeat(Request $request, Flight $flight, string $seat): JsonResponse
+    {
+        $this->checkin->releaseSeat($this->token($request), $flight, $seat);
+
+        return response()->json(['message' => 'Seat released.']);
     }
 
     public function checkIn(Request $request, Flight $flight): JsonResponse
