@@ -67,6 +67,8 @@ class AllocationResource extends JsonResource
             'usage' => $this->when($this->usage !== null, fn () => $this->usage),
             // agency portal: what the airline lets the agency do (Agents permission)
             'rights' => $this->when((bool) $request->user()?->agency_id, fn () => app(AccessScope::class)->agencyRights($this->resource)),
+            // agency portal: which Excel layout the passenger import reads
+            'import_format' => $this->when((bool) $request->user()?->agency_id, fn () => $this->agency?->import_format ?? 'standard'),
             // departure / arrival / number / route changes of its flights since the allocation was given (agency portal)
             'schedule_changes' => $this->when($this->scheduleChanges !== null, fn () => $this->scheduleChanges),
             // last push to the Chinggis agent API (agencies with chinggis_sync)

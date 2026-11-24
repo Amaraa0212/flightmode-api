@@ -22,6 +22,29 @@ final class SpreadsheetReader
      */
     public static function rows(UploadedFile $file): Collection
     {
+        $data = self::cells($file);
+        // line 1 is the heading row (unset, not array_shift: the keys stay line numbers)
+        $headings = array_map(fn ($h) => self::slug($h), $data[1] ?? []);
+        unset($data[1]);
+
+        $rows = collect();
+        foreach ($data as $line => $values) {
+            $row = collect($headings)->filter()->mapWithKeys(fn ($heading, $column) => [$heading => $values[$column] ?? null]);
+            if ($row->contains(fn ($v) => $v !== null && $v !== '')) {
+                $rows->put($line, $row);
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Every cell of the first sheet, for layouts whose heading row is not the first line.
+     *
+     * @return array<int, array<int, mixed>> line number (1-based) => cell values by column (0-based)
+     */
+    public static function cells(UploadedFile $file): array
+    {
         $type = self::READERS[strtolower($file->getClientOriginalExtension())] ?? null;
         if (! $type) {
             throw BusinessRuleException::make('import_unsupported_file', 'Upload an xlsx, xls or csv file.');
@@ -36,16 +59,12 @@ final class SpreadsheetReader
         $data = $book->getSheet(0)->toArray(null, true, false, false);
         $book->disconnectWorksheets();
 
-        $headings = array_map(fn ($h) => Str::slug(trim((string) $h), '_'), array_shift($data) ?? []);
+        return array_combine(range(1, max(1, count($data))), $data ?: [[]]);
+    }
 
-        $rows = collect();
-        foreach ($data as $index => $values) {
-            $row = collect($headings)->filter()->mapWithKeys(fn ($heading, $column) => [$heading => $values[$column] ?? null]);
-            if ($row->contains(fn ($v) => $v !== null && $v !== '')) {
-                $rows->put($index + 2, $row); // line 1 is the heading row
-            }
-        }
-
-        return $rows;
+    /** "Profile SAP" → profile_sap */
+    public static function slug(mixed $heading): string
+    {
+        return Str::slug(trim((string) $heading), '_');
     }
 }

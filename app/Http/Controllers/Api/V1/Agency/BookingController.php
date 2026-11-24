@@ -211,10 +211,14 @@ class BookingController extends Controller
             $this->access->ensureAllocation($request->user(), $return);
         }
 
-        $result = $importer->import($request->file('file'), $allocation->load('outboundFlight'), $request->user(),
+        $result = $importer->import($request->file('file'), $allocation->load(['outboundFlight', 'agency']), $request->user(),
             $request->boolean('replace_existing'), $return);
 
-        return $this->created("{$result['created']} passenger(s) imported.", $result);
+        $message = isset($result['kept'])
+            ? "{$result['created']} added, {$result['kept']} already on the quota, {$result['cancelled']} cancelled, {$result['waitlisted']} waitlisted."
+            : "{$result['created']} passenger(s) imported.";
+
+        return $this->created($message, $result);
     }
 
     /** Pre-fill the form from the agency's last booking of the same document number. */

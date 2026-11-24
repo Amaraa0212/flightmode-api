@@ -344,7 +344,7 @@ class BookingService
             $infantData = array_key_exists('infant', $data) ? $data['infant'] : ($passenger->infant ? $passenger->infant->only(self::PASSENGER_FIELDS) : null);
 
             $this->rules->validate($firstFlight, $attributes, $infantData,
-                in_array($channel, [ActivityChannel::Agency, ActivityChannel::AgencyApi], true));
+                in_array($channel, [ActivityChannel::Agency, ActivityChannel::AgencyApi], true), $this->checksPassportExpiry($passenger->booking));
             $this->assertNotDuplicate($segments->pluck('flight_id')->all(), $attributes['document_number'] ?? null, $passenger->id);
 
             $original = $passenger->getOriginal();
@@ -653,7 +653,7 @@ class BookingService
             throw BusinessRuleException::make('infant_without_adult', 'An infant must be added together with an adult.');
         }
 
-        $this->rules->validate($firstFlight, $attributes, $infantData, $this->fromAgency($booking->source));
+        $this->rules->validate($firstFlight, $attributes, $infantData, $this->fromAgency($booking->source), $this->checksPassportExpiry($booking));
         $this->assertNotDuplicate($flights->pluck('id')->all(), $attributes['document_number'] ?? null);
 
         $bucket = $this->resolveBucket($allocation, $row['allocation_fare_id'] ?? null, $cabin);
@@ -830,6 +830,12 @@ class BookingService
         }
 
         return $bucket;
+    }
+
+    /** Oyu Tolgoi's agency (OT import layout): passport dates are not checked for its workers */
+    private function checksPassportExpiry(?Booking $booking): bool
+    {
+        return ! $booking?->agency?->importsOtReport();
     }
 
     /** @param array<int> $flightIds */

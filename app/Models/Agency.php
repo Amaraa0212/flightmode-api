@@ -22,6 +22,18 @@ class Agency extends Model
     /** Sales channels an agency can be (own channels of an airline are usually not travel agencies) */
     public const CHANNELS = ['agency', 'ticket_office', 'web', 'call_center'];
 
+    /** Passenger Excel layouts: the FlightMode template, or Oyu Tolgoi's transport report */
+    public const IMPORT_STANDARD = 'standard';
+
+    public const IMPORT_OT = 'ot';
+
+    public const IMPORT_FORMATS = [self::IMPORT_STANDARD, self::IMPORT_OT];
+
+    public function importsOtReport(): bool
+    {
+        return $this->import_format === self::IMPORT_OT;
+    }
+
     /** The airline this agency is a sales channel of; null = a global agency */
     public function ownerAirline(): BelongsTo
     {
