@@ -73,6 +73,27 @@ class Round11Test extends TestCase
         $this->assertSoftDeleted('users', ['id' => $idle->id]);
     }
 
+    public function test_the_eticket_takes_the_free_allowance_from_the_fbag_rule(): void
+    {
+        $out = $this->makeFlight();
+        // as the baggage rules page saves a bag: FBAG (free) with EBAG / XBAG rows that are paid, not the allowance
+        $group = fn (array $rows, array $details) => $this->postJson('/api/v1/admin/baggage-rule-groups',
+            $details + ['type' => 'weight', 'is_active' => true, 'rules' => $rows])->assertCreated()->json('data.rules.*.id');
+        $this->actingAsRole('airline-admin');
+        $ids = $group([['ssr_code' => 'EBAG', 'weight_kg' => 1, 'price' => 10000], ['ssr_code' => 'FBAG', 'pieces' => 1, 'weight_kg' => 15],
+            ['ssr_code' => 'XBAG', 'pieces' => 1, 'weight_kg' => 23, 'price' => 150000]], ['name' => 'Charter 15KG']);
+        $business = $group([['ssr_code' => 'FBAG', 'pieces' => 2, 'weight_kg' => 32]], ['name' => 'Business 2PC', 'type' => 'piece', 'cabin_class' => 'C']);
+        $out->baggageRules()->attach([...$ids, ...$business]);
+
+        app(BookingService::class)->create(['flight_ids' => [$out->id], 'passengers' => [$this->passengerPayload()]],
+            $this->makeUser('system-admin'), BookingSource::Admin);
+
+        $data = app(ETicketService::class)->data(Passenger::query()->firstOrFail());
+        // economy: the 15 kg FBAG total, not the 20 kg default, the EBAG kg or the XBAG bag
+        $this->assertSame(15, $data['legs'][0]['baggage_kg']);
+        $this->assertNull($data['legs'][0]['baggage_pieces']);
+    }
+
     public function test_a_baggage_rule_in_a_template_is_not_deleted(): void
     {
         $rule = BaggageRule::create(['airline_id' => $this->airline->id, 'name' => '1PC', 'type' => 'piece', 'pieces' => 1, 'weight_kg' => 23]);
