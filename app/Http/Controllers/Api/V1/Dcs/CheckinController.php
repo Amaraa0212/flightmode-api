@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1\Dcs;
 
 use App\Enums\CheckinChannel;
+use App\Enums\SegmentStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\SegmentResource;
 use App\Models\PassengerSegment;
@@ -27,9 +28,23 @@ class CheckinController extends Controller
         $this->checkin->assertCounterOpen($segment->flight);
         $data = $request->validate(['seat_number' => ['nullable', 'string', 'max:4']]);
 
+        $firstCheckin = $segment->status === SegmentStatus::Booked;
         $segment = $this->checkin->checkIn($segment, $data['seat_number'] ?? null, CheckinChannel::Dcs);
 
-        return $this->success('Checked in.', new SegmentResource($segment));
+        // the group's members with held seats come along (a seat change of a checked-in passenger moves only them)
+        $group = $firstCheckin ? $this->checkin->checkInHeldGroupMates($segment, CheckinChannel::Dcs) : ['checked_in' => [], 'skipped' => []];
+        $message = 'Checked in.';
+        if ($group['checked_in']) {
+            $message .= ' Group, on their held seats: '.collect($group['checked_in'])
+                ->map(fn (PassengerSegment $s) => $s->passenger->last_name.'/'.$s->passenger->first_name.' '.$s->seat_number)->implode(', ').'.';
+        }
+        if ($group['skipped']) {
+            $message .= ' Not checked in: '.implode('; ', $group['skipped']);
+        }
+
+        return $this->success($message, (new SegmentResource($segment))->resolve($request) + [
+            'group_checked_in' => collect($group['checked_in'])->pluck('id')->all(),
+        ]);
     }
 
     /** Hold a seat for a booked passenger without the check-in (seat_number null releases it). */

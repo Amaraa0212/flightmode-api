@@ -31,7 +31,7 @@ class ServiceTemplateController extends AirlineCrudController
 
     protected function with(): array
     {
-        return ['aircraft', 'seatAssignmentProfile', 'baggageRules', 'seatPrices'];
+        return ['aircraft', 'seatAssignmentProfile', 'baggageRules.group', 'seatPrices'];
     }
 
     protected function nonAttributes(): array

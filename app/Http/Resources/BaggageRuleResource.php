@@ -14,6 +14,7 @@ class BaggageRuleResource extends JsonResource
         return [
             'id' => $this->id,
             'airline_id' => $this->airline_id,
+            'baggage_rule_group_id' => $this->baggage_rule_group_id,
             'name' => $this->name,
             'type' => $this->type->value,
             'cabin_class' => $this->cabin_class,

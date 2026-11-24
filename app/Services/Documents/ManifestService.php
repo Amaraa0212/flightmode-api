@@ -55,6 +55,7 @@ class ManifestService
         $segments = $this->checkedIn($flight);
         // an infant has no seat of its own: it sits on its adult's
         $seatOf = $segments->pluck('seat_number', 'passenger_id');
+        $zoneOf = AircraftSeat::query()->where('aircraft_id', $flight->aircraft_id)->pluck('zone', 'seat_number');
         $rows = $segments->map(fn (PassengerSegment $s) => [
             'segment_id' => $s->id,
             'name' => $s->passenger->last_name.'/'.$s->passenger->first_name,
@@ -68,8 +69,13 @@ class ManifestService
             'date_of_birth' => $s->passenger->date_of_birth?->format('Y-m-d'),
             'remark' => $s->passenger->remark,
             'pnr' => $s->passenger->booking->pnr,
+            'document_number' => $s->passenger->document_number,
+            'phone' => $s->passenger->phone,
+            // the agency that sold the booking, null = the airline's own sale
+            'agency' => $s->passenger->booking->agency?->name,
             'cabin_class' => $s->cabin_class->value,
-            'seat_number' => $s->seat_number ?? $seatOf->get($s->passenger->infant_of_passenger_id),
+            'seat_number' => $seat = $s->seat_number ?? $seatOf->get($s->passenger->infant_of_passenger_id),
+            'zone' => $seat ? $zoneOf->get($seat) : null,
             'boarding_sequence' => $s->boarding_sequence,
             'ssr' => $s->ssrCodes->pluck('code')->implode(' '),
             'online' => $s->checkin_channel?->value === 'online',
@@ -195,7 +201,7 @@ class ManifestService
     /** @return Collection<int, PassengerSegment> */
     private function checkedIn(Flight $flight): Collection
     {
-        return PassengerSegment::query()->with(['passenger.booking', 'ssrCodes', 'checkedBaggage'])
+        return PassengerSegment::query()->with(['passenger.booking.agency', 'ssrCodes', 'checkedBaggage'])
             ->where('flight_id', $flight->id)
             ->whereIn('status', [SegmentStatus::CheckedIn, SegmentStatus::Boarded, SegmentStatus::Flown])
             ->get();

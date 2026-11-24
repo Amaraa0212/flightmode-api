@@ -110,6 +110,42 @@ class CheckinFlowTest extends TestCase
         $this->assertDatabaseHas('activity_logs', ['event' => 'passenger.seat_reserved']);
     }
 
+    public function test_checking_in_one_of_a_group_checks_in_the_members_with_held_seats(): void
+    {
+        // one PNR of three: two get seats held, the third has none
+        $booking = app(BookingService::class)->create(['flight_ids' => [$this->flight->id], 'passengers' => [
+            $this->passengerPayload(['first_name' => 'Anu']), $this->passengerPayload(['first_name' => 'Bat']),
+            $this->passengerPayload(['first_name' => 'Tuya']),
+        ]], $this->makeUser('system-admin'), BookingSource::Admin);
+        [$anu, $bat, $tuya] = $booking->passengers->sortBy('id')->map(fn ($p) => $p->segments()->firstOrFail())->values()->all();
+        // a passenger of another PNR put in a group with Anu by the agent, seat held too
+        $other = $this->book(['first_name' => 'Saraa']);
+        $this->actingAsRole('station-agent');
+        $this->postJson("/api/v1/dcs/flights/{$this->flight->id}/open")->assertOk();
+        $this->putJson("/api/v1/dcs/segments/{$anu->id}/seat", ['seat_number' => '7A'])->assertOk();
+        $this->putJson("/api/v1/dcs/segments/{$bat->id}/seat", ['seat_number' => '7B'])->assertOk();
+
+        $response = $this->postJson("/api/v1/dcs/segments/{$anu->id}/check-in")->assertOk()
+            ->assertJsonPath('data.seat_number', '7A')->assertJsonPath('data.group_checked_in', [$bat->id]);
+        $this->assertStringContainsString('7B', $response->json('message'));
+        $this->assertSame(SegmentStatus::CheckedIn, $bat->fresh()->status);
+        $this->assertSame('7B', $bat->fresh()->seat_number);
+        // no seat held: stays to be checked in on its own
+        $this->assertSame(SegmentStatus::Booked, $tuya->fresh()->status);
+        $this->assertSame($anu->fresh()->checkin_group_id, $tuya->fresh()->checkin_group_id);
+
+        // a group made at the counter: the held member comes along too
+        $this->putJson("/api/v1/dcs/segments/{$tuya->id}/seat", ['seat_number' => '8A'])->assertOk();
+        $this->putJson("/api/v1/dcs/segments/{$other->id}/seat", ['seat_number' => '8B'])->assertOk();
+        $this->deleteJson("/api/v1/dcs/segments/{$tuya->id}/group")->assertOk();
+        $this->postJson("/api/v1/dcs/flights/{$this->flight->id}/groups", ['segment_ids' => [$tuya->id, $other->id]])->assertCreated();
+        $this->postJson("/api/v1/dcs/segments/{$other->id}/check-in")->assertOk()->assertJsonPath('data.group_checked_in', [$tuya->id]);
+        $this->assertSame(SegmentStatus::CheckedIn, $tuya->fresh()->status);
+
+        // a seat change of a checked-in passenger moves only them
+        $this->postJson("/api/v1/dcs/segments/{$anu->id}/check-in", ['seat_number' => '9A'])->assertOk()->assertJsonPath('data.group_checked_in', []);
+    }
+
     public function test_baggage_tags_boarding_pass_and_gate_boarding(): void
     {
         $segment = $this->book(['first_name' => 'Sara', 'last_name' => 'Bold']);

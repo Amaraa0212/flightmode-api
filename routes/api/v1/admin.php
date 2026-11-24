@@ -97,7 +97,9 @@ Route::apiResource('inventory-templates', Admin\InventoryTemplateController::cla
     ->parameters(['inventory-templates' => 'id'])->middleware('crud:seat_templates,lookup');
 
 // Rules & ancillary
-Route::apiResource('baggage-rules', Admin\BaggageRuleController::class)->parameters(['baggage-rules' => 'id'])->middleware('crud:baggage_rules,lookup');
+// a bag's details + its SSR rows (FBAG / XBAG / EBAG); the rules themselves are listed for flights, templates and the counter
+Route::apiResource('baggage-rule-groups', Admin\BaggageRuleGroupController::class)->parameters(['baggage-rule-groups' => 'id'])->middleware('crud:baggage_rules,lookup');
+Route::apiResource('baggage-rules', Admin\BaggageRuleController::class)->only(['index', 'show', 'destroy'])->parameters(['baggage-rules' => 'id'])->middleware('crud:baggage_rules,lookup');
 Route::apiResource('baggage-policies', Admin\BaggagePolicyController::class)->parameters(['baggage-policies' => 'id'])->middleware('crud:terms');
 Route::apiResource('seat-prices', Admin\SeatPriceController::class)->parameters(['seat-prices' => 'id'])->middleware('crud:seat_rules,lookup');
 Route::apiResource('service-templates', Admin\ServiceTemplateController::class)->parameters(['service-templates' => 'id'])->middleware('crud:templates,lookup');

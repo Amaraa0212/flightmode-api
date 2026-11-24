@@ -8,6 +8,7 @@ use App\Enums\PassengerType;
 use App\Enums\SegmentStatus;
 use App\Exceptions\BusinessRuleException;
 use App\Mail\ETicketMail;
+use App\Models\BaggageRule;
 use App\Models\Booking;
 use App\Models\Flight;
 use App\Models\Passenger;
@@ -214,7 +215,7 @@ class ETicketService
      * @return array{name: string, address: ?string, phone: ?string, email: ?string, logo_path: ?string}
      */
     /**
-     * Free checked baggage of a coupon from the flight's rule for its cabin: a PC rule gives pieces × kg each, a KG rule
+     * Free checked baggage of a coupon from the flight's FBAG rule for its cabin: a PC rule gives pieces × kg each, a KG rule
      * a total kg (pieces: null); a "no baggage rule" charter has no limit (kg: null). Without a rule: the default kg.
      *
      * @return array{kg: ?int, pieces: ?int}
@@ -224,7 +225,9 @@ class ETicketService
         if ($flight->hasNoBaggageRule()) {
             return ['kg' => null, 'pieces' => null];
         }
-        $rule = $flight->baggageRules->where('is_active', true)->whereNull('ssr_code')
+        // the free allowance: an FBAG rule (or one without SSR, from before the SSR rows); XBAG / EBAG are paid
+        $rule = $flight->baggageRules->where('is_active', true)
+            ->filter(fn ($r) => ! $r->ssr_code || $r->isSsr(BaggageRule::SSR_FREE))
             ->filter(fn ($r) => $r->cabin_class === null || $r->cabin_class === $segment->cabin_class?->value)
             ->sortBy(fn ($r) => $r->cabin_class === null ? 1 : 0)->first();
         if (! $rule) {

@@ -22,6 +22,8 @@ class ServiceTemplateResource extends JsonResource
             'checkin_opens_minutes' => $this->checkin_opens_minutes,
             'checkin_closes_minutes' => $this->checkin_closes_minutes,
             'baggage_rule_ids' => $this->whenLoaded('baggageRules', fn () => $this->baggageRules->pluck('id')),
+            // the baggage rules page's bags (a group's SSR rows come together)
+            'baggage_rule_groups' => $this->whenLoaded('baggageRules', fn () => $this->baggageRules->pluck('group.name')->filter()->unique()->values()),
             'seat_price_ids' => $this->whenLoaded('seatPrices', fn () => $this->seatPrices->pluck('id')),
         ];
     }
