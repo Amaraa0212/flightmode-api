@@ -78,6 +78,11 @@ class FlightDocumentsTest extends TestCase
         // the infant has no seat of its own: it shows the adult's
         $this->assertSame('4A', collect($data['passengers']['rows'])->firstWhere('type', 'INF')['seat_number']);
         $this->assertArrayHasKey('date_of_birth', $adult);
+        // the admin manifest screen: passport, the seat's zone, and who sold it (no agency: the airline's own sale)
+        $this->assertSame($this->checkedIn->document_number, $adult['document_number']);
+        $this->assertSame($this->aircraft->seats()->where('seat_number', '4A')->value('zone'), $adult['zone']);
+        $this->assertArrayHasKey('phone', $adult);
+        $this->assertNull($adult['agency']);
         $this->assertSame($data['header']['std_time'], $data['header']['departure_time']);
         $this->assertSame(
             collect($data['balance']['rows'])->sum('bags'),
