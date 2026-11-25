@@ -24,6 +24,8 @@ class AgencyRequest extends FormRequest
             'chinggis_sync' => ['boolean'],
             // system administrators: charter round trips may return on another airline
             'open_jaw' => ['boolean'],
+            // system administrators: the passenger Excel layout (Oyu Tolgoi's transport report)
+            'import_format' => [Rule::in(Agency::IMPORT_FORMATS)],
             'is_active' => ['boolean'],
             // system administrators: the airline the new agency belongs to (empty = shared by every airline)
             'owner_airline_id' => ['nullable', 'integer', 'exists:airlines,id'],

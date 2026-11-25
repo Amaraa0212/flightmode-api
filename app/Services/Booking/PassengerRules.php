@@ -16,8 +16,9 @@ class PassengerRules
     /**
      * @param  array<string, mixed>  $adult
      * @param  array<string, mixed>|null  $infant
+     * @param  bool  $checkExpiry  false: Oyu Tolgoi's agency — its workers fly on the company's list, no passport dates
      */
-    public function validate(Flight $flight, array $adult, ?array $infant = null, bool $expiryRequired = false): void
+    public function validate(Flight $flight, array $adult, ?array $infant = null, bool $expiryRequired = false, bool $checkExpiry = true): void
     {
         $departure = $flight->departureAt();
         $international = ! $flight->isDomestic();
@@ -36,9 +37,9 @@ class PassengerRules
             }
         }
 
-        $this->assertDocument($adult, $departure, $international, 'Passenger', $expiryRequired);
+        $this->assertDocument($adult, $departure, $international, 'Passenger', $expiryRequired, $checkExpiry);
         if ($infant !== null) {
-            $this->assertDocument($infant, $departure, $international, 'Infant', $expiryRequired);
+            $this->assertDocument($infant, $departure, $international, 'Infant', $expiryRequired, $checkExpiry);
         }
     }
 
@@ -52,7 +53,7 @@ class PassengerRules
      *
      * @param  array<string, mixed>  $person
      */
-    private function assertDocument(array $person, Carbon $departure, bool $international, string $who, bool $expiryRequired = false): void
+    private function assertDocument(array $person, Carbon $departure, bool $international, string $who, bool $expiryRequired = false, bool $checkExpiry = true): void
     {
         if (($person['document_type'] ?? null) === self::NATIONAL_ID) {
             if (strtoupper((string) ($person['nationality'] ?? '')) !== 'MN') {
@@ -65,6 +66,10 @@ class PassengerRules
             if ($age !== null && $age >= (int) config('flightmode.booking.national_id_no_expiry_age', 45)) {
                 return; // valid for life
             }
+        }
+
+        if (! $checkExpiry) {
+            return;
         }
 
         if ($international) {

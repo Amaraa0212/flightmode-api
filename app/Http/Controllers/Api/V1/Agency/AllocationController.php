@@ -32,7 +32,7 @@ class AllocationController extends Controller
         $past = $request->input('status') === 'past';
 
         $allocations = $this->access->allocations(AgencyAllocation::query(), $request->user())
-            ->with(['airline', 'cabins', 'fares.fare', 'outboundFlight.origin', 'outboundFlight.destination', 'returnFlight.origin', 'returnFlight.destination'])
+            ->with(['airline', 'agency', 'cabins', 'fares.fare', 'outboundFlight.origin', 'outboundFlight.destination', 'returnFlight.origin', 'returnFlight.destination'])
             ->join('flights', 'flights.id', '=', 'agency_allocations.outbound_flight_id')
             // a raw join sees deleted flights too: their allocations have no flight to show
             ->whereNull('flights.deleted_at')
