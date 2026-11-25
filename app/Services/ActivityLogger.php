@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\ActivityChannel;
+use App\Events\Checkin\SeatsChanged;
 use App\Events\Dcs\FlightUpdated;
 use App\Models\ActivityLog;
 use App\Models\Flight;
@@ -56,6 +57,14 @@ class ActivityLogger
         $seat = array_key_exists('seat_to', $props)
             ? ['segment_id' => $log->subject_id, 'from' => $props['seat_from'] ?? null, 'to' => $props['seat_to']]
             : null;
+
+        // public online check-in seat map: only seat numbers and states
+        if ($seat) {
+            SeatsChanged::announce($log->flight_id, array_filter([
+                (string) $seat['from'] => SeatsChanged::RELEASED,
+                (string) $seat['to'] => SeatsChanged::OCCUPIED,
+            ]));
+        }
 
         // counters load the flight figures once and then take them from these events
         DB::afterCommit(fn () => rescue(
