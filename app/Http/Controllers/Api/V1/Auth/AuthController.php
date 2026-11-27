@@ -184,7 +184,7 @@ class AuthController extends Controller
         }
 
         $user->forceFill(['last_login_at' => now()])->save();
-        $token = $user->createToken($deviceName, ['*'])->plainTextToken;
+        $token = $user->createToken($deviceName, ['*'], now()->addHours((int) config('flightmode.auth.max_hours', 12)))->plainTextToken;
         $this->audit($user, 'auth.login', 'Signed in ('.$deviceName.')', ['device_name' => $deviceName, 'two_factor' => $user->hasTwoFactor()]);
 
         return response()->json([

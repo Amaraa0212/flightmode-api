@@ -9,6 +9,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Sanctum\PersonalAccessToken;
+use Laravel\Sanctum\Sanctum;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -30,6 +32,27 @@ class AppServiceProvider extends ServiceProvider
         });
 
         $this->onlineCheckinLimits();
+        $this->sessionTimeout();
+    }
+
+    /**
+     * A sign-in ends after `flightmode.auth.idle_minutes` without a request, and `max_hours` after it was made
+     * (also for tokens issued before tokens got an expiry). Partner API tokens are not sign-ins and never expire.
+     */
+    private function sessionTimeout(): void
+    {
+        Sanctum::authenticateAccessTokensUsing(function (PersonalAccessToken $token, bool $isValid) {
+            if (! $isValid || $token->name === User::PARTNER_TOKEN_NAME) {
+                return $isValid;
+            }
+
+            $idle = (int) config('flightmode.auth.idle_minutes', 60);
+            $max = (int) config('flightmode.auth.max_hours', 12);
+            $lastSeen = $token->last_used_at ?? $token->created_at;
+
+            return (! $idle || $lastSeen?->gt(now()->subMinutes($idle)))
+                && (! $max || $token->created_at?->gt(now()->subHours($max)));
+        });
     }
 
     /**

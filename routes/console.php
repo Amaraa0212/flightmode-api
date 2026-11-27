@@ -21,3 +21,5 @@ Artisan::command('allocations:release-unsold', function (AllocationService $allo
 // needs the scheduler on the server: * * * * * php artisan schedule:run
 Schedule::command('bookings:cancel-expired-holds')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('allocations:release-unsold')->everyFiveMinutes()->withoutOverlapping();
+// sign-ins past their 12-hour limit
+Schedule::command('sanctum:prune-expired --hours=24')->daily();
