@@ -22,6 +22,13 @@ return [
         'round_trip_tax_percent' => (float) env('FLIGHTMODE_RT_TAX_PERCENT', 70),
     ],
 
+    'auth' => [
+        // A sign-in (API token) ends after this many minutes without any request …
+        'idle_minutes' => (int) env('AUTH_IDLE_MINUTES', 60),
+        // … and at the latest this many hours after signing in. Partner API tokens never expire.
+        'max_hours' => (int) env('AUTH_MAX_HOURS', 12),
+    ],
+
     'allocations' => [
         // Agency quota: check-in opens this many hours before departure; a same-day names deadline counts back from it.
         'checkin_opens_hours' => 3,
