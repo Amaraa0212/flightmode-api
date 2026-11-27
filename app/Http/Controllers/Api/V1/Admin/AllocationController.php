@@ -56,6 +56,10 @@ class AllocationController extends Controller
         $this->access->ensureAirlineOwned($request->user(), $flight);
         $data = $request->validate([
             'deadline' => ['nullable', 'date'],
+            // same-day deadline: hours before check-in opens
+            'deadline_hours' => ['nullable', 'integer', 'min:0', 'max:48'],
+            // the deadline above replaces every agency's deadline
+            'apply_deadline_to_all' => ['boolean'],
             'rows' => ['present', 'array'],
             'rows.*.allocation_id' => ['nullable', 'integer'],
             'rows.*.agency_id' => ['required', 'integer', 'exists:agencies,id', 'distinct'],
@@ -64,6 +68,7 @@ class AllocationController extends Controller
             'rows.*.cabins' => ['nullable', 'array'],
             'rows.*.cabins.*' => ['integer', 'min:0'],
             'rows.*.deadline' => ['nullable', 'date'],
+            'rows.*.deadline_hours' => ['nullable', 'integer', 'min:0', 'max:48'],
             'rows.*.uses_published_fares' => ['boolean'],
             'remove' => ['array'],
             'remove.*' => ['integer'],
@@ -73,7 +78,8 @@ class AllocationController extends Controller
             $this->allocations->assertQuotaFlight($flight);
         }
 
-        $this->board->distribute($flight, $data['rows'], $data['remove'] ?? [], $data['deadline'] ?? null);
+        $this->board->distribute($flight, $data['rows'], $data['remove'] ?? [], $data['deadline'] ?? null,
+            isset($data['deadline_hours']) ? (int) $data['deadline_hours'] : null, (bool) ($data['apply_deadline_to_all'] ?? false));
 
         return $this->success('Quota saved.', $this->board->overview($flight->refresh()));
     }
@@ -89,6 +95,7 @@ class AllocationController extends Controller
             'date_from' => ['required', 'date_format:Y-m-d'],
             'date_to' => ['required', 'date_format:Y-m-d', 'after_or_equal:date_from'],
             'deadline_days_before' => ['nullable', 'integer', 'min:0', 'max:60'],
+            'deadline_hours' => ['nullable', 'integer', 'min:0', 'max:48'],
             'rows' => ['required', 'array', 'min:1'],
             'rows.*.agency_id' => ['required', 'integer', 'exists:agencies,id', 'distinct'],
             'rows.*.mode' => ['required', Rule::in([AgencyAllocation::FIXED, AgencyAllocation::POOL])],
@@ -103,7 +110,7 @@ class AllocationController extends Controller
         }
 
         $result = $this->board->distributeSeries($flightSeries, $data['date_from'], $data['date_to'], $data['rows'],
-            (int) ($data['deadline_days_before'] ?? 1));
+            (int) ($data['deadline_days_before'] ?? 1), isset($data['deadline_hours']) ? (int) $data['deadline_hours'] : null);
 
         return $this->success("Quota saved on {$result['saved']} of {$result['flights']} flight(s).", $result);
     }

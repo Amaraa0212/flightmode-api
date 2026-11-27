@@ -22,6 +22,11 @@ return [
         'round_trip_tax_percent' => (float) env('FLIGHTMODE_RT_TAX_PERCENT', 70),
     ],
 
+    'allocations' => [
+        // Agency quota: check-in opens this many hours before departure; a same-day names deadline counts back from it.
+        'checkin_opens_hours' => 3,
+    ],
+
     'checkin' => [
         // Boarding starts this many minutes before departure (printed on the boarding pass).
         'boarding_minutes_before_departure' => 30,

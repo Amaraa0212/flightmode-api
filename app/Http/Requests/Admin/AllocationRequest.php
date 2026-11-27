@@ -20,6 +20,8 @@ class AllocationRequest extends FormRequest
             // a pool allocation's seats are a limit, 0 = no limit
             'seats' => ['required', 'integer', Rule::when($this->input('mode') === AgencyAllocation::POOL, 'min:0', 'min:1')],
             'deadline' => ['required', 'date'],
+            // deadline on the departure day: names close this many hours before check-in opens
+            'deadline_hours' => ['nullable', 'integer', 'min:0', 'max:48'],
             'is_waitlist' => ['boolean'],
             // sell at the fare settings prices instead of fare buckets
             'uses_published_fares' => ['boolean'],
