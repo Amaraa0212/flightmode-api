@@ -43,6 +43,7 @@ class AllocationResource extends JsonResource
             'mode' => $this->mode,
             'seats' => $this->seats,
             'deadline' => $this->deadline->toDateString(),
+            'deadline_hours' => $this->deadline_hours,
             'uses_fare_quotas' => $this->uses_fare_quotas,
             'uses_published_fares' => $this->uses_published_fares,
             // unsold fixed seats given back to the flight when the names deadline passed

@@ -31,7 +31,7 @@ class HoldService
             $allocation = AgencyAllocation::query()->with(['cabins', 'fares', 'outboundFlight', 'returnFlight'])->lockForUpdate()->findOrFail($allocation->id);
 
             if (! $allocation->isOpenForNames()) {
-                throw BusinessRuleException::make('names_deadline_passed', 'The name list deadline for this allocation has passed.');
+                throw BusinessRuleException::make('names_deadline_passed', $allocation->namesClosedMessage());
             }
 
             // a pool cabin row may have 0 seats (sells without a limit of its own)

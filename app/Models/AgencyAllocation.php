@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\FlightStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -31,6 +32,8 @@ class AgencyAllocation extends Model
             'uses_published_fares' => 'boolean',
             'released_at' => 'datetime',
             'released_seats' => 'integer',
+            'released_cabins' => 'array',
+            'deadline_hours' => 'integer',
             'is_waitlist' => 'boolean',
             'chinggis_synced_at' => 'datetime',
             'schedule_change_seen_at' => 'datetime',
@@ -89,22 +92,46 @@ class AgencyAllocation extends Model
     }
 
     /**
-     * Last moment the agency may add / change names. When the deadline is the departure
-     * day itself, names close 2 hours before departure (legacy rule).
+     * Last moment the agency may add / change names. When the deadline is the departure day itself, names close
+     * `deadline_hours` hours before check-in opens (check-in opens 3 hours before departure).
      */
     public function namesDeadlineAt(): Carbon
     {
         $departure = $this->outboundFlight->departureAt();
 
         if ($this->deadline->isSameDay($departure)) {
-            return $departure->copy()->subHours(2);
+            return $this->checkinOpensAt()->subHours((int) $this->deadline_hours);
         }
 
         return $this->deadline->copy()->setTimeFrom($departure);
     }
 
+    public function checkinOpensAt(): Carbon
+    {
+        return $this->outboundFlight->departureAt()->copy()
+            ->subHours((int) config('flightmode.allocations.checkin_opens_hours', 3));
+    }
+
+    /** Check-in of the outbound flight has been opened (or the flight is past it): no more names. */
+    public function isCheckinStarted(): bool
+    {
+        $status = $this->outboundFlight->status;
+
+        return $status !== null && $status !== FlightStatus::Scheduled;
+    }
+
     public function isOpenForNames(): bool
     {
-        return now()->lt($this->namesDeadlineAt());
+        return ! $this->isCheckinStarted() && now()->lt($this->namesDeadlineAt());
+    }
+
+    /** Why names cannot be added any more (null = still open). */
+    public function namesClosedMessage(): ?string
+    {
+        if ($this->isCheckinStarted()) {
+            return 'Check-in of this flight has opened; passengers cannot be added any more.';
+        }
+
+        return now()->lt($this->namesDeadlineAt()) ? null : 'The name list deadline for this allocation has passed.';
     }
 }

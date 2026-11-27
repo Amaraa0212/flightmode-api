@@ -64,6 +64,12 @@ class AllocationService
                     throw BusinessRuleException::make('cabins_exceed_seats', 'A cabin limit is higher than the allocation limit.');
                 }
             } else {
+                // the names deadline moved later: the unsold seats taken back at the old deadline go back to the agency
+                $restore = $allocation?->released_at && $this->reopensNames($allocation, $data);
+                if ($restore) {
+                    $data = $this->withReleasedSeats($allocation, $data, array_filter([$outbound, $return]));
+                }
+
                 if ($data['seats'] < 1) {
                     throw BusinessRuleException::make('seats_required', 'A fixed allocation needs at least one seat.');
                 }
@@ -117,9 +123,11 @@ class AllocationService
                 'mode' => $mode,
                 'seats' => $data['seats'],
                 'deadline' => $data['deadline'],
+                'deadline_hours' => array_key_exists('deadline_hours', $data) ? $data['deadline_hours'] : $allocation?->deadline_hours,
                 'is_waitlist' => $data['is_waitlist'] ?? false,
                 'uses_published_fares' => $published,
-            ])->fill($syncFares ? ['uses_fare_quotas' => ! empty($data['fares'])] : [])->save();
+            ])->fill(! empty($restore) ? ['released_at' => null, 'released_seats' => null, 'released_cabins' => null] : [])
+                ->fill($syncFares ? ['uses_fare_quotas' => ! empty($data['fares'])] : [])->save();
 
             $allocation->cabins()->delete();
             foreach ($data['cabins'] as $cabin => $seats) {
@@ -173,14 +181,20 @@ class AllocationService
                 }
 
                 $before = $allocation->seats;
+                $releasedCabins = [];
                 foreach ($allocation->cabins as $cabin) {
-                    $cabin->update(['seats' => min($cabin->seats, $this->usedSeats($allocation, $cabin->cabin_class))]);
+                    $keep = min($cabin->seats, $this->usedSeats($allocation, $cabin->cabin_class));
+                    if ($cabin->seats > $keep) {
+                        $releasedCabins[$cabin->cabin_class->value] = $cabin->seats - $keep;
+                    }
+                    $cabin->update(['seats' => $keep]);
                 }
                 $kept = min($before, $this->usedSeats($allocation));
                 $allocation->forceFill([
                     'seats' => $kept,
                     'released_at' => now(),
                     'released_seats' => $before - $kept,
+                    'released_cabins' => $releasedCabins ?: null,
                 ])->save();
 
                 if ($before > $kept) {
@@ -190,6 +204,51 @@ class AllocationService
         }
 
         return $due->count();
+    }
+
+    /** Whether the deadline being saved opens a closed (released) allocation for names again. */
+    private function reopensNames(AgencyAllocation $allocation, array $data): bool
+    {
+        $probe = (clone $allocation)->forceFill([
+            'deadline' => $data['deadline'],
+            'deadline_hours' => array_key_exists('deadline_hours', $data) ? $data['deadline_hours'] : $allocation->deadline_hours,
+        ]);
+        $probe->setRelation('outboundFlight', $allocation->outboundFlight()->first());
+
+        return $probe->isOpenForNames();
+    }
+
+    /**
+     * Adds the unsold seats a released fixed allocation gave back at its names deadline to the seats being saved, as
+     * far as the flights still have room for them (seats sold or given to others since then are not taken away).
+     *
+     * @param  list<Flight>  $flights
+     */
+    private function withReleasedSeats(AgencyAllocation $allocation, array $data, array $flights): array
+    {
+        $perCabin = (array) ($allocation->released_cabins ?? []);
+        if ($perCabin === [] && $allocation->released_seats) {
+            // released before the per-cabin split was kept: back to the allocation's biggest cabin, else economy
+            $cabin = $allocation->cabins()->orderByDesc('seats')->first()?->cabin_class->value ?? CabinClass::Economy->value;
+            $perCabin = [$cabin => (int) $allocation->released_seats];
+        }
+
+        $cabins = array_map('intval', (array) ($data['cabins'] ?? []));
+        // room on every flight beyond the seats being saved
+        $totalRoom = min(array_map(fn (Flight $f) => $this->seatsLeftForAllocations($f, $allocation), $flights)) - (int) $data['seats'];
+        $restored = 0;
+        foreach ($perCabin as $cabin => $seats) {
+            $cabinClass = CabinClass::from($cabin);
+            $cabinRoom = min(array_map(fn (Flight $f) => $this->cabinSeatsLeftForAllocations($f, $cabinClass, $allocation), $flights))
+                - ($cabins[$cabin] ?? 0);
+            $give = max(0, min((int) $seats, $cabinRoom, $totalRoom - $restored));
+            if ($give > 0) {
+                $cabins[$cabin] = ($cabins[$cabin] ?? 0) + $give;
+                $restored += $give;
+            }
+        }
+
+        return ['cabins' => $cabins, 'seats' => (int) $data['seats'] + $restored] + $data;
     }
 
     /** Seats of a flight not yet given to fixed allocations, sold outside them (direct / pool) or held by pool agencies. */
@@ -356,6 +415,8 @@ class AllocationService
             // infants on a lap need no seat but the aircraft takes only so many (null: no limit)
             'infants_left' => $this->infantsLeft($allocation),
             'is_open_for_names' => $allocation->isOpenForNames(),
+            'checkin_started' => $allocation->isCheckinStarted(),
+            'names_closed_message' => $allocation->namesClosedMessage(),
             'names_deadline_at' => $allocation->namesDeadlineAt()->toIso8601String(),
             'cabins' => $allocation->cabins->map(function ($cabin) use ($allocation) {
                 $usedInCabin = $this->usedSeats($allocation, $cabin->cabin_class);

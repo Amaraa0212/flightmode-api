@@ -799,7 +799,7 @@ class BookingService
         }
 
         if ($actor->isAgencyUser() && ! $allocation->isOpenForNames()) {
-            throw BusinessRuleException::make('names_deadline_passed', 'The name list deadline for this allocation has passed.');
+            throw BusinessRuleException::make('names_deadline_passed', $allocation->namesClosedMessage());
         }
     }
 

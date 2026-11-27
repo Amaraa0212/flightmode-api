@@ -126,7 +126,7 @@ class BookingController extends Controller
     {
         $this->ensureOwn($request, $passenger);
         if ($passenger->booking->allocation && ! $passenger->booking->allocation->isOpenForNames()) {
-            throw ValidationException::withMessages(['passenger' => 'The name list deadline has passed; contact the airline.']);
+            throw ValidationException::withMessages(['passenger' => $passenger->booking->allocation->namesClosedMessage().' Contact the airline.']);
         }
 
         $this->bookings->cancelPassenger($passenger, $this->channel($request));

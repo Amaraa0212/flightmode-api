@@ -382,6 +382,7 @@ class InventoryService
                     'outbound_flight_id' => $allocation->outbound_flight_id,
                     'return_flight_id' => $allocation->return_flight_id,
                     'deadline' => $allocation->deadline?->toDateString(),
+                    'deadline_hours' => $allocation->deadline_hours,
                     'uses_fare_quotas' => $allocation->uses_fare_quotas,
                     'uses_published_fares' => $allocation->uses_published_fares,
                     'released_seats' => $allocation->released_seats,

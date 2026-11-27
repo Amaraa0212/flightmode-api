@@ -87,4 +87,53 @@ class AllocationBoardTest extends TestCase
         // removing in the same request
         $this->distribute([], [$second])->assertOk()->assertJsonCount(1, 'data.allocations');
     }
+
+    public function test_same_day_deadline_closes_hours_before_checkin_and_checkin_open_closes_names(): void
+    {
+        $departure = $this->flight->departureAt();
+        $data = $this->distribute([['agency_id' => $this->agency->id, 'mode' => 'fixed', 'seats' => 10, 'deadline' => $departure->toDateString(), 'deadline_hours' => 5]])
+            ->assertOk()->json('data');
+        $allocation = AgencyAllocation::query()->findOrFail($data['allocations'][0]['allocation_id']);
+
+        // check-in opens 3 h before departure, names close 5 h before that
+        $this->assertTrue($allocation->namesDeadlineAt()->eq($departure->copy()->subHours(8)));
+        $this->assertTrue($allocation->isOpenForNames());
+
+        $this->flight->update(['status' => 'checkin_open']);
+        $allocation->refresh();
+        $this->assertFalse($allocation->isOpenForNames());
+        $this->assertStringContainsString('Check-in', $allocation->namesClosedMessage());
+    }
+
+    public function test_changing_the_deadline_for_all_moves_every_agency_and_gives_released_seats_back(): void
+    {
+        $data = $this->distribute([
+            ['agency_id' => $this->agency->id, 'mode' => 'fixed', 'seats' => 10, 'cabins' => ['C' => 2, 'Y' => 8]],
+            ['agency_id' => $this->second->id, 'mode' => 'fixed', 'seats' => 6],
+        ])->assertOk()->json('data');
+        $first = collect($data['allocations'])->firstWhere('agency.id', $this->agency->id)['allocation_id'];
+        $second = collect($data['allocations'])->firstWhere('agency.id', $this->second->id)['allocation_id'];
+
+        // the first agency's deadline passed without names: its seats are taken back
+        AgencyAllocation::query()->whereKey($first)->update(['deadline' => now()->subDay()->toDateString()]);
+        $this->assertSame(1, app(\App\Services\Allocation\AllocationService::class)->releaseUnsold());
+        $this->assertSame(0, AgencyAllocation::query()->find($first)->seats);
+
+        $deadline = $this->flight->departureAt()->subDays(2)->toDateString();
+        $this->postJson("/api/v1/admin/flights/{$this->flight->id}/allocations/distribute", [
+            'deadline' => $deadline,
+            'apply_deadline_to_all' => true,
+            'rows' => [
+                ['allocation_id' => $first, 'agency_id' => $this->agency->id, 'mode' => 'fixed', 'seats' => 0, 'cabins' => []],
+                ['allocation_id' => $second, 'agency_id' => $this->second->id, 'mode' => 'fixed', 'seats' => 6],
+            ],
+        ])->assertOk();
+
+        $restored = AgencyAllocation::query()->with('cabins')->find($first);
+        $this->assertSame($deadline, $restored->deadline->toDateString());
+        $this->assertSame($deadline, AgencyAllocation::query()->find($second)->deadline->toDateString());
+        $this->assertSame(10, $restored->seats);
+        $this->assertSame(['C' => 2, 'Y' => 8], $restored->cabins->mapWithKeys(fn ($c) => [$c->cabin_class->value => $c->seats])->all());
+        $this->assertNull($restored->released_at);
+    }
 }

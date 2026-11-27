@@ -65,6 +65,8 @@ class AllocationBoard
                 'held' => $usage['held'],
                 'remaining' => $usage['remaining'],
                 'deadline' => $a->deadline->toDateString(),
+                'deadline_hours' => $a->deadline_hours,
+                'names_deadline_at' => $a->namesDeadlineAt()->toIso8601String(),
                 'is_waitlist' => $a->is_waitlist,
                 'uses_published_fares' => $a->uses_published_fares,
                 'released_seats' => $a->released_seats,
@@ -105,12 +107,15 @@ class AllocationBoard
      * `remove` deletes allocations. Seats given back are freed before new ones are taken, so moving quota between
      * agencies in the same request works.
      *
+     * `$deadline` / `$deadlineHours` are for new rows; with `$deadlineForAll` they replace the deadline of every row
+     * (an allocation whose unsold seats were already taken back gets them again when the deadline moves later).
+     *
      * @param  list<array<string, mixed>>  $rows
      * @param  list<int>  $remove
      */
-    public function distribute(Flight $flight, array $rows, array $remove, ?string $deadline = null): void
+    public function distribute(Flight $flight, array $rows, array $remove, ?string $deadline = null, ?int $deadlineHours = null, bool $deadlineForAll = false): void
     {
-        DB::transaction(function () use ($flight, $rows, $remove, $deadline) {
+        DB::transaction(function () use ($flight, $rows, $remove, $deadline, $deadlineHours, $deadlineForAll) {
             $existing = AgencyAllocation::query()->with(['cabins', 'agency:id,name'])
                 ->where(fn ($q) => $q->where('outbound_flight_id', $flight->id)->orWhere('return_flight_id', $flight->id))
                 ->get()->keyBy('id');
@@ -141,8 +146,14 @@ class AllocationBoard
                     'return_flight_id' => $allocation?->return_flight_id,
                     'mode' => $row['mode'] ?? AgencyAllocation::FIXED,
                     'seats' => (int) $row['seats'],
-                    'deadline' => $row['deadline'] ?? $allocation?->deadline?->toDateString() ?? $deadline
-                        ?? $flight->departureAt()->subDay()->toDateString(),
+                    'deadline' => ($deadlineForAll && $deadline ? $deadline : null) ?? $row['deadline'] ?? $allocation?->deadline?->toDateString()
+                        ?? $deadline ?? $flight->departureAt()->subDay()->toDateString(),
+                    'deadline_hours' => match (true) {
+                        $deadlineForAll && $deadline !== null => $deadlineHours,
+                        array_key_exists('deadline_hours', $row) => $row['deadline_hours'],
+                        $allocation !== null => $allocation->deadline_hours,
+                        default => $deadlineHours,
+                    },
                     'is_waitlist' => $allocation?->is_waitlist ?? false,
                     'uses_published_fares' => (bool) ($row['uses_published_fares'] ?? $allocation?->uses_published_fares ?? false),
                     // fixed without cabins: all in economy; pool without cabins: every cabin of the aircraft
@@ -159,7 +170,7 @@ class AllocationBoard
      * @param  array<int, array<string, mixed>>  $rows
      * @return array{flights: int, saved: int, failed: array<int, array{flight_id: int, flight_number: string, date: string, message: string}>}
      */
-    public function distributeSeries(FlightSeries $series, string $from, string $to, array $rows, int $deadlineDaysBefore): array
+    public function distributeSeries(FlightSeries $series, string $from, string $to, array $rows, int $deadlineDaysBefore, ?int $deadlineHours = null): array
     {
         $flights = $series->flights()
             ->whereBetween('scheduled_departure_at', [Carbon::parse($from)->subDay(), Carbon::parse($to)->addDays(2)])
@@ -183,7 +194,8 @@ class AllocationBoard
                 $this->distribute($flight, array_map(fn (array $row) => $row + [
                     'allocation_id' => $existing[$row['agency_id']] ?? null,
                     'deadline' => $deadline,
-                ], $rows), [], $deadline);
+                    'deadline_hours' => $deadlineHours,
+                ], $rows), [], $deadline, $deadlineHours);
                 $saved++;
             } catch (BusinessRuleException $e) {
                 $failed[] = ['flight_id' => $flight->id, 'flight_number' => $flight->flight_number, 'date' => $this->localDay($flight), 'message' => $e->getMessage()];
@@ -230,6 +242,8 @@ class AllocationBoard
                 'mode' => AgencyAllocation::FIXED,
                 'seats' => $a->seats + $delta,
                 'deadline' => $a->deadline->toDateString(),
+                'deadline_hours' => $a->deadline_hours,
+                'names_deadline_at' => $a->namesDeadlineAt()->toIso8601String(),
                 'is_waitlist' => $a->is_waitlist,
                 'uses_published_fares' => $a->uses_published_fares,
                 'released_seats' => $a->released_seats,
